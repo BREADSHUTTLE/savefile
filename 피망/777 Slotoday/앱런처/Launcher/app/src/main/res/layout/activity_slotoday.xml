@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<android.support.constraint.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context="com.slotoday.launcher.Slotoday">
+
+    <RadioGroup
+        android:id="@+id/radioGroup"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:checkedButton="@+id/Dev">
+
+        <RadioButton
+            android:id="@+id/Local"
+            android:layout_width="180dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
+            android:text="LOCAL"
+            android:textSize="20dp"
+            android:textStyle="bold" />
+
+        <RadioButton
+            android:id="@+id/Dev"
+            android:layout_width="180dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
+            android:text="DEV"
+            android:textSize="20dp"
+            android:textStyle="bold" />
+
+        <RadioButton
+            android:id="@+id/DQ"
+            android:layout_width="180dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
+            android:text="DQ"
+            android:textSize="20dp"
+            android:textStyle="bold" />
+
+        <RadioButton
+            android:id="@+id/TQ"
+            android:layout_width="180dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
+            android:text="TQ"
+            android:textSize="20dp"
+            android:textStyle="bold" />
+
+        <RadioButton
+            android:id="@+id/Review"
+            android:layout_width="180dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
+            android:text="REVIEW"
+            android:textSize="20dp"
+            android:textStyle="bold" />
+
+        <RadioButton
+            android:id="@+id/Live"
+            android:layout_width="180dp"
+            android:layout_height="50dp"
+            android:layout_weight="1"
+            android:text="LIVE"
+            android:textSize="20dp"
+            android:textStyle="bold" />
+
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_weight="50" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_centerHorizontal="true"
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/inputGSN"
+                android:layout_width="200dp"
+                android:layout_height="match_parent"
+                android:layout_alignParentBottom="true"
+                android:layout_centerHorizontal="true"
+                android:hint="Input GSN"
+                android:textSize="20dp" />
+
+            <CheckBox
+                android:id="@+id/passCheck"
+                android:layout_width="100dp"
+                android:layout_height="wrap_content"
+                android:layout_alignParentBottom="true"
+                android:checked="false"
+                android:text="점검 통과" />
+
+            <CheckBox
+                android:id="@+id/passSlotCheck"
+                android:layout_width="150dp"
+                android:layout_height="wrap_content"
+                android:layout_alignParentBottom="true"
+                android:checked="false"
+                android:text="슬롯점검 통과" />
+
+            <Button
+                android:id="@+id/start"
+                android:layout_width="match_parent"
+                android:layout_height="70dp"
+                android:layout_alignParentBottom="true"
+                android:text="START"
+                tools:layout_editor_absoluteX="148dp"
+                tools:layout_editor_absoluteY="447dp" />
+        </LinearLayout>
+
+    </RadioGroup>
+
+</android.support.constraint.ConstraintLayout>
