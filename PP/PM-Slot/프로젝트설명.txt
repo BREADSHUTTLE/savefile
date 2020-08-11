@@ -1,0 +1,11 @@
+* lobby.cs : 로비 화면 구성 내용
+
+* PopupEvent.cs : 이벤트 리스트를 보여주는 UI 작업 내용
+
+* PopupInventory.cs : 보상받는 인벤토리 컨텐츠 내용
+
+* PopupProfile..cs : 개인 정보 UI
+
+* PopupVideoAds..cs : 동영상 광고 컨텐츠 UI 팝업 내용
+
+* UIListViewGrid.cs : 게임 내 리스트뷰 관련 설정 정보 내용
