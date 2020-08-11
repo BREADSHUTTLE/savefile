@@ -1,0 +1,17 @@
+* AssignObj.cs : 건물 선택 후, 드래그해서 내려 놓을 때 싱크 맞춤
+
+* Lobby.cs : 로비 메인 화면 구성
+
+* ObjStructure.cs : SNG 건물 정보
+
+* PopupDailyBonus.cs : 접속 후 자동 일일 보상 팝업
+
+* PopupShop.cs : 상점 컨텐츠 팝업 구성 내용
+
+* PopupTutorial.cs : 간단한 컨텐츠 설명 팝업
+
+* Startup.cs : 게임 초기 화면
+
+* UIMyIslandTutorial.cs : SNG 컨텐츠 설명 UI
+
+* UIStructureSelectMode.cs : 건물 편집 모드 일부 내용
