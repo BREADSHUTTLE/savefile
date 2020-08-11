@@ -1,0 +1,19 @@
+플러그인 오류
+packages.unity.com/com.unity.textmeshpro@1.2.4/Scripts/Runtime/TMPro_Private.cs(3709,45):
+
+ error CS0121: The call is ambiguous between the following methods or properties:
+
+ TMPro.TMPro_ExtensionMethods.Compare(this UnityEngine.Color32, UnityEngine.Color32)'
+
+and TMPro.TMPro_ExtensionMethods.Compare(this UnityEngine.Color32, UnityEngine.Color32)'.
+
+기존에 사용중이던 TextMesh pro 에러 부분	https://answers.unity.com/questions/1527978/20182-text-mesh-pro-plugin-errors.html
+UnityEngine.Network.player.ipAddress	2018.2 이상부터 사용하지 않는다.	
+NetworkManager.singleton.networkAddress 로 대체하여 변경하였으나, 이 부분도 차후 버전에서 사라질 예정이라 경고문이 뜬다.
+
+하지만 특별하게 버전을 업그레이드 할 이유가 없기 때문에 그대로 사용하기로 한다.
+
+BuildPipeline.BuildPlayer()	2018 이후로 해당 부분 바로 string 으로 반환하지 않고, BuildReport 를 받도록 되어있음.	https://docs.unity3d.com/kr/current/Manual/UpgradeGuide20181.html
+spine 버전	해당 툴이 새 버전으로 업데이트 되었음.	새로 다운로드 받고, 사용중이던 부분 주석처리 하였음 (위자드 슬롯만)
+TextMesh Pro dll error	해당 툴이 새 버전으로 업데이트 되면서, VS 에서 디버거가 안되는 이유	VS 2017 이상 버전에서 사용 가능
+ 

@@ -1,0 +1,11 @@
+* ListItem ~~ .cs : 컨텐츠에 들어가는 화면 구성을 위한 리스트 파일
+
+* CharacterVoiceMgr.cs : 로비에서 랜덤으로 재생되는 캐릭터 보이스
+
+* AddCanvasElementToBuildUI.cs : 게임 캔버스 화면 비율 설정
+
+* Active_CharacterController.cs : 캐릭터 동작 구현
+
+* ItemTableMgr.cs : 습득가능한 아이템 정보들
+
+* PlayerData.cs : 플레이어 정보
