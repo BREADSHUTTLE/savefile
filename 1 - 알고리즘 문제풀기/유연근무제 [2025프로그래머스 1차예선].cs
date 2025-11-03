@@ -6,6 +6,8 @@ public class Solution
     /// <summary>
     /// 각 사람마다 자신의 timelog를 1차원 배열에 담아서 하나씩 검사한다.
     /// day는 계속 증가하고, 주말은 패스해야 하므로 주말을 따로 체크하도록 했다.
+    /// 60분이 넘으면 시간 단위를 바꿔야 하기 때문에 60분 계산이 필요하고,
+    /// 24시가 되면 0시로 바꿔야 하니 코드를 추가해야한다. (핵심)
     /// </summary>
     public int solution(int[] schedules, int[,] timelogs, int startday)
     {
