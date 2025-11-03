@@ -1,0 +1,88 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <None Include="..\..\work.uproject" />
+    <Filter Include="Source">
+      <UniqueIdentifier>{E8AF28AD-9847-4B7B-A4F2-D6ECF9153BE6}</UniqueIdentifier>
+    </Filter>
+    <None Include="..\..\Source\work.Target.cs">
+      <Filter>Source</Filter>
+    </None>
+    <None Include="..\..\Source\workEditor.Target.cs">
+      <Filter>Source</Filter>
+    </None>
+    <Filter Include="Config">
+      <UniqueIdentifier>{E5C60227-346C-4E47-B80E-E214BADD72E4}</UniqueIdentifier>
+    </Filter>
+    <None Include="..\..\Config\DefaultEditor.ini">
+      <Filter>Config</Filter>
+    </None>
+    <None Include="..\..\Config\DefaultEditorPerProjectUserSettings.ini">
+      <Filter>Config</Filter>
+    </None>
+    <None Include="..\..\Config\DefaultEngine.ini">
+      <Filter>Config</Filter>
+    </None>
+    <None Include="..\..\Config\DefaultGame.ini">
+      <Filter>Config</Filter>
+    </None>
+    <None Include="..\..\Config\DefaultInput.ini">
+      <Filter>Config</Filter>
+    </None>
+    <Filter Include="Source\work">
+      <UniqueIdentifier>{2F981058-AA25-476B-B3E8-6261A6AC5E08}</UniqueIdentifier>
+    </Filter>
+    <ClCompile Include="..\..\Source\work\AC_Projectile.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\AC_Projectile.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <ClCompile Include="..\..\Source\work\AC_ProjectileCharging.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\AC_ProjectileCharging.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <ClCompile Include="..\..\Source\work\AC_ProjectileReflection.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\AC_ProjectileReflection.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <ClCompile Include="..\..\Source\work\AC_ProjectileSplit.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\AC_ProjectileSplit.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <None Include="..\..\Source\work\work.Build.cs">
+      <Filter>Source\work</Filter>
+    </None>
+    <ClCompile Include="..\..\Source\work\work.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\work.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <ClCompile Include="..\..\Source\work\workCharacter.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\workCharacter.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <ClCompile Include="..\..\Source\work\workGameMode.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\workGameMode.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <ClCompile Include="..\..\Source\work\W_UserWidget.cpp">
+      <Filter>Source\work</Filter>
+    </ClCompile>
+    <ClInclude Include="..\..\Source\work\W_UserWidget.h">
+      <Filter>Source\work</Filter>
+    </ClInclude>
+    <None Include="cpp.hint" />
+  </ItemGroup>
+</Project>
