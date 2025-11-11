@@ -1,23 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
-using static Solution;
-
-/// <summary>
-/// 이거 채점 테스트 오류나는 버전임
-/// 수정을 해야함. 테스트 케이스만 통과한 상태
-/// </summary>
-class Program
-{
-    static void Main(string[] args)
-    {
-        Solution s = new Solution();
-        int result = s.solution(new string[] { "muzi", "ryan", "frodo", "neo" }, new string[] { "muzi frodo", "muzi frodo", "ryan muzi", "ryan muzi", "ryan muzi", "frodo muzi", "frodo ryan", "neo muzi" });
-        //int result = s.solution(new string[] { "joy", "brad", "alessandro", "conan", "david" }, new string[] { "alessandro brad", "alessandro joy", "alessandro conan", "david alessandro", "alessandro david" });
-        //int result = s.solution(new string[] { "a", "b", "c" }, new string[] { "a b", "b a", "c a", "a c", "a c", "c a" });
-        Console.WriteLine(result);
-    }
-}
 
 public class Solution
 {
@@ -30,7 +13,8 @@ public class Solution
 
     public class Give
     {
-        public string? name { get; set; }
+        //public string? name { get; set; }
+        public string name { get; set; }
         public int count { get; set; }
     }
 
@@ -40,12 +24,20 @@ public class Solution
         public List<string> acceptName = new List<string>();
     }
 
+    // 상대에게 준 횟수
+    private int GetGiveCount(Dictionary<string, List<Give>> dicMyGive, string from, string to)
+    {
+        var list = dicMyGive[from];
+        var found = list.FirstOrDefault(g => g.name == to);
+        return found == null ? 0 : found.count;
+    }
+
     public int solution(string[] friends, string[] gifts)
     {
         int answer = 0;
-        Dictionary<string, List<Give>> dicMyGive = new Dictionary<string, List<Give>>();    // 본인이 주고 받은 사람들, 본인/받은사람
-        Dictionary<string, Gift> dicGift = new Dictionary<string, Gift>();                  // 통합
-        Dictionary<string, Result> result = new Dictionary<string, Result>();
+        var dicMyGive = new Dictionary<string, List<Give>>();    // 본인이 주고 받은 사람들, 본인/받은사람
+        var dicGift = new Dictionary<string, Gift>();            // 통합
+        var result = new Dictionary<string, Result>();
 
         for (int i = 0; i < friends.Length; i++)
         {
@@ -72,75 +64,48 @@ public class Solution
         foreach (var gift in dicGift)
             gift.Value.count = gift.Value.give - gift.Value.accept;
 
-        foreach (var my in  dicMyGive)
+        for (int i = 0; i < friends.Length; i++)
         {
-            string myName = my.Key;
-            List<Give> listGive = my.Value; //내가 준 사람
-
-            for (int i = 0; i < listGive.Count; i++)
+            for (int j = i + 1; j < friends.Length; j++)        // 자기 자신을 제외한 카운팅
             {
-                int giveCount = listGive[i].count;  // 내가 상대에게 준 갯수
-                bool isMyGive = dicMyGive[listGive[i].name].Any(g => g.name == myName); //내가 준 사람에게 내가 받은적이 있나
-                if (isMyGive)
+                string a = friends[i];
+                string b = friends[j];
+
+                int giveAB = GetGiveCount(dicMyGive, a, b); // A→B 준 횟수
+                int giveBA = GetGiveCount(dicMyGive, b, a); // B→A 준 횟수
+
+                if (giveAB > giveBA)
                 {
-                    //있으면
-                    int acceptCount = dicMyGive[listGive[i].name].First(g => g.name == myName).count;
-                    if (giveCount > acceptCount)
-                    {
-                        result[myName].accept++;           // 나는 받은거 ++;
-                        result[myName].acceptName.Add(listGive[i].name);    //나에게 선물 준 애
-                    }
-                    else if (giveCount < acceptCount)
-                    {
-                        result[listGive[i].name].accept++;
-                        result[listGive[i].name].acceptName.Add(myName);    // 내가 줌
-                    }
-                    else if (giveCount == acceptCount)  // 서로 같으면
-                    {
-                        if (dicGift[myName].count > dicGift[listGive[i].name].count)
-                        {
-                            if (!result[myName].acceptName.Contains(listGive[i].name))
-                            {
-                                result[myName].accept++;
-                                result[myName].acceptName.Add(listGive[i].name);
-                            }
-                        }
-                        else if (dicGift[myName].count < dicGift[listGive[i].name].count)
-                        {
-                            if (!result[listGive[i].name].acceptName.Contains(myName))
-                            {
-                                result[listGive[i].name].accept++;
-                                result[listGive[i].name].acceptName.Add(myName);
-                            }
-                        }
-                    }
-                    else    // 서로 안줌
-                    {
-                        int myCount = dicGift[myName].give - dicGift[myName].accept;
-                        int youCount = dicGift[listGive[i].name].give - dicGift[myName].accept;
-                        if (myCount > youCount)
-                        {
-                            result[myName].accept++;
-                            result[myName].acceptName.Add(listGive[i].name);
-                        }
-                        else if (myCount < youCount)
-                        {
-                            result[listGive[i].name].accept++;
-                            result[listGive[i].name].acceptName.Add(myName);    // 내가 줌
-                        }
-                    }
+                    // a가 b에게 1개 받음
+                    result[a].accept++;
+                }
+                else if (giveAB < giveBA)
+                {
+                    // b가 a에게 1개 받음
+                    result[b].accept++;
                 }
                 else
                 {
-                    // 없으면
-                    result[myName].accept++;
+                    // 두 사람이 선물을 주고받은 기록이 하나도 없거나 주고받은 수가 같다면,
+                    // 선물 지수가 더 큰 사람이 선물 지수가 더 작은 사람에게 선물을 하나 받습니다.
+                    int countA = dicGift[a].count;
+                    int countB = dicGift[b].count;
+
+                    if (countA > countB)
+                        result[a].accept++;
+                    else if (countA < countB)
+                        result[b].accept++;
+                    // 두 사람의 선물 지수도 같다면 다음 달에 선물을 주고받지 않습니다.
                 }
             }
         }
 
         // 제일 큰 사람 찾기
-        string maxName = result.Aggregate((x, y) => x.Value.accept > y.Value.accept ? x : y).Key;
-        answer = result[maxName].accept;
+        foreach (var kv in result)
+        {
+            if (kv.Value.accept > answer)
+                answer = kv.Value.accept;
+        }
 
         return answer;
     }
