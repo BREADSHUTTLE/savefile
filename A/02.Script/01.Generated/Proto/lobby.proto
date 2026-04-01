@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+// 로비서버와 클라이언트 간 통신 프로토콜
+
+package lobby;
+
+enum GameType {
+  GT_UNKNOWN = 0;
+  GT_HOLDEM = 1;
+  GT_BADUGI = 2;
+  GT_SEVEN_POKER = 3;
+}
+
+message Base {
+  string req = 1;              // 패킷 구분용(에러 시 Packet의 payload가 없어서 구분을 위해 필요)
+  int64 uid = 2;               // user id(서버에서 유저별로 패킷로그 검색 시 필요)
+  uint32 version = 3;          // 프로토콜 버전
+  string trace_id = 4;         // request, response 매칭 필요 시 사용
+  string error = 90;           // 공통 에러 메시지(서버 응답 전용)
+}
+
+message Packet {
+  Base base = 1;
+
+  oneof payload {
+    LoginReq login_req = 2;
+    LoginRes login_res = 3;
+    RegisterReq register_req = 4;
+    RegisterRes register_res = 5;
+    ServerListReq server_list_req = 6;
+    ServerListRes server_list_res = 7;
+    NickCheckReq nick_check_req = 8;
+    NickCheckRes nick_check_res = 9;
+    NickSetReq nick_set_req = 10;
+    NickSetRes nick_set_res = 11;
+  }
+}
+
+message LoginReq { // 로그인
+  string id = 1;    // 계정
+  string pwd = 2;   // 비밀번호
+}
+
+message LoginRes {
+  string token = 1; // 다른 서버에 접속할 때 사용할 JWT
+  int64 gold = 2;   // 게임 골드
+  int64 safe = 3;   // 금고 골드
+  string nick = 4;  // 별명
+}
+
+message RegisterReq { // 회원가입
+  string id = 1;    // id
+  string pwd = 2;   // 비밀번호
+  string nick = 3;  // 별명
+}
+
+message RegisterRes {
+}
+
+message ServerListReq {
+  GameType game_type = 1;
+}
+
+message ServerInfo {
+  string host = 2;
+  uint32 port = 3;
+  //uint32 ccu = 4;   // 동시 접속자 수
+  //repeated int64 rooms = 5;
+}
+
+message ServerListRes {
+  repeated ServerInfo list = 1;
+}
+
+message NickCheckReq {
+  string nickname = 1;
+}
+
+message NickCheckRes {
+}
+
+message NickSetReq {
+  string nickname = 1;
+}
+
+message NickSetRes {
+}
