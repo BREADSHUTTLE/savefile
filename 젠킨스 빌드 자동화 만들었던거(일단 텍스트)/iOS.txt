@@ -1,0 +1,626 @@
+#!/bin/bash
+
+# UTF-8 인코딩 설정 (CocoaPods 필수!)
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export LANGUAGE=en_US.UTF-8
+
+CM_PATH="/usr/local/bin/cm"
+
+# ========== BUILD_TYPE 처리 (App/S3Only) ==========
+if [ "$BUILD_TYPE" = "S3Only" ]; then
+  BUILD_METHOD="BuildScript.BuildAddressablesOnly"
+  BUILD_TYPE_MSG="S3 리소스만"
+  IS_APP_BUILD="false"
+  echo "☁️ S3 리소스만 빌드 (앱 빌드 X)"
+else
+  BUILD_METHOD="BuildScript.BuildiOS"
+  BUILD_TYPE_MSG="iOS App"
+  IS_APP_BUILD="true"
+  echo "📦 iOS 앱 빌드 모드"
+fi
+# ==================================================
+
+# ========== Keychain 잠금 해제 (앱 빌드일 때만) ==========
+if [ "$IS_APP_BUILD" = "true" ]; then
+  echo "=== Unlocking Keychain ==="
+  security unlock-keychain -p "${KEYCHAIN_PASSWORD}" ~/Library/Keychains/login.keychain-db
+  security set-keychain-settings -t 3600 -u ~/Library/Keychains/login.keychain-db
+  
+  # Xcode 강제 종료
+  killall Xcode 2>/dev/null || true
+  sleep 2
+fi
+# ========================================================
+
+# ========== 원스토어 관련 파일 제외 함수 ==========
+# 플러그인 폴더
+ONESTORE_DIR="${WORKSPACE}/Assets/OneStoreCorpPlugins"
+ONESTORE_META="${WORKSPACE}/Assets/OneStoreCorpPlugins.meta"
+ONESTORE_BACKUP="${WORKSPACE}/OneStoreCorpPlugins_backup"
+ONESTORE_META_BACKUP="${WORKSPACE}/OneStoreCorpPlugins.meta.backup"
+
+# OneStoreIAPManager 파일
+ONESTORE_MANAGER="${WORKSPACE}/Assets/02.Script/04.Manager/OneStoreIAPManager.cs"
+ONESTORE_MANAGER_META="${WORKSPACE}/Assets/02.Script/04.Manager/OneStoreIAPManager.cs.meta"
+ONESTORE_MANAGER_BACKUP="${WORKSPACE}/OneStoreIAPManager.cs.backup"
+ONESTORE_MANAGER_META_BACKUP="${WORKSPACE}/OneStoreIAPManager.cs.meta.backup"
+
+exclude_onestore() {
+  echo "=== Excluding OneStore files for iOS build ==="
+  
+  if [ -d "$ONESTORE_DIR" ]; then
+    mv "$ONESTORE_DIR" "$ONESTORE_BACKUP"
+    mv "$ONESTORE_META" "$ONESTORE_META_BACKUP" 2>/dev/null || true
+    echo "✅ OneStoreCorpPlugins 폴더 임시 제외"
+  fi
+  
+  if [ -f "$ONESTORE_MANAGER" ]; then
+    mv "$ONESTORE_MANAGER" "$ONESTORE_MANAGER_BACKUP"
+    mv "$ONESTORE_MANAGER_META" "$ONESTORE_MANAGER_META_BACKUP" 2>/dev/null || true
+    echo "✅ OneStoreIAPManager.cs 임시 제외"
+  fi
+}
+
+restore_onestore() {
+  echo "=== Restoring OneStore files ==="
+  
+  if [ -d "$ONESTORE_BACKUP" ]; then
+    mv "$ONESTORE_BACKUP" "$ONESTORE_DIR"
+    mv "$ONESTORE_META_BACKUP" "$ONESTORE_META" 2>/dev/null || true
+    echo "✅ OneStoreCorpPlugins 폴더 복원"
+  fi
+  
+  if [ -f "$ONESTORE_MANAGER_BACKUP" ]; then
+    mv "$ONESTORE_MANAGER_BACKUP" "$ONESTORE_MANAGER"
+    mv "$ONESTORE_MANAGER_META_BACKUP" "$ONESTORE_MANAGER_META" 2>/dev/null || true
+    echo "✅ OneStoreIAPManager.cs 복원"
+  fi
+}
+# ================================================
+
+# 로그 업로드 함수 (스레드에 첨부)
+upload_log_to_slack() {
+  local THREAD_TS=$1
+  echo "=== Uploading Build Log to Slack ==="
+  LOG_FILE="${WORKSPACE}/build.log"
+  LOG_SIZE=$(stat -f%z "$LOG_FILE")
+  
+  RESPONSE=$(curl -s -X POST \
+    -H "Authorization: Bearer ${SLACK_TOKEN}" \
+    -H "Content-Type: application/x-www-form-urlencoded; charset=utf-8" \
+    --data "filename=FAILED_Dev_iOS_log_${BUILD_NUMBER}.txt&length=${LOG_SIZE}" \
+    https://slack.com/api/files.getUploadURLExternal)
+  
+  UPLOAD_URL=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('upload_url',''))")
+  FILE_ID=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('file_id',''))")
+  
+  curl -s -X POST "$UPLOAD_URL" -F file=@"$LOG_FILE"
+  
+  if [ -n "$THREAD_TS" ]; then
+    THREAD_JSON=",\"thread_ts\":\"${THREAD_TS}\""
+  else
+    THREAD_JSON=""
+  fi
+  
+  curl -s -X POST \
+    -H "Authorization: Bearer ${SLACK_TOKEN}" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    --data "{\"files\":[{\"id\":\"${FILE_ID}\",\"title\":\"Dev iOS Build Log #${BUILD_NUMBER} (FAILED)\"}],\"channel_id\":\"C0A12TDUBK3\"${THREAD_JSON}}" \
+    https://slack.com/api/files.completeUploadExternal
+}
+
+# 변경사항을 스레드로 전송하는 공통 함수
+send_changes_thread() {
+  local THREAD_CHANNEL=$1
+  local THREAD_TS=$2
+  local THREAD_CHANGES=$3
+  
+  if [ -n "$THREAD_TS" ] && [ -n "$THREAD_CHANGES" ]; then
+    python3 << PYEOF
+import json
+import urllib.request
+
+channel = "${THREAD_CHANNEL}"
+thread_ts = "${THREAD_TS}"
+token = "${SLACK_TOKEN}"
+changes = '''${THREAD_CHANGES}'''
+
+if changes.strip():
+    payload = json.dumps({
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "text": f"📝 *변경사항:*\n{changes}"
+    })
+    req = urllib.request.Request(
+        "https://slack.com/api/chat.postMessage",
+        data=payload.encode('utf-8'),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8"
+        }
+    )
+    resp = urllib.request.urlopen(req)
+    resp_data = json.loads(resp.read().decode('utf-8'))
+    print(f"스레드 전송 결과: {resp_data.get('ok')}")
+PYEOF
+  fi
+}
+
+# 실패 메시지 전송 함수
+send_fail_message() {
+  local FAIL_STAGE="$1"
+  
+  # 실패 시에도 원스토어 복원
+  restore_onestore
+  
+  MAIN_TS=$(python3 << PYEOF
+import json
+import urllib.request
+
+channel = "C0A12TDUBK3"
+token = "${SLACK_TOKEN}"
+build_num = "${BUILD_NUMBER}"
+stage = "${FAIL_STAGE}"
+build_type_msg = "${BUILD_TYPE_MSG}"
+resource_mode_msg = "${RESOURCE_MODE_MSG}"
+skip_identity = "${SKIP_IDENTITY_VERIFICATION}"
+app_version = "${APP_VERSION}"
+full_version = f"{app_version}.{build_num}"
+
+skip_identity_warning = "\n⚠️ 본인인증 스킵 모드" if skip_identity == "true" else ""
+
+message = f"❌ *ATOZPOKER Dev iOS Build #{build_num}* 실패했어요! ({stage}){skip_identity_warning}\n\n📦 *빌드 타입:* {build_type_msg}\n📱 *버전:* {full_version}\n🗂️ *리소스:* {resource_mode_msg}"
+
+payload = json.dumps({
+    "channel": channel,
+    "text": message
+})
+
+req = urllib.request.Request(
+    "https://slack.com/api/chat.postMessage",
+    data=payload.encode('utf-8'),
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+)
+response = urllib.request.urlopen(req)
+resp_data = json.loads(response.read().decode('utf-8'))
+print(resp_data.get("ts", ""), end="")
+PYEOF
+  )
+  
+  echo "실패 메인 메시지 ts: $MAIN_TS"
+  send_changes_thread "C0A12TDUBK3" "$MAIN_TS" "$PLASTIC_CHANGES"
+}
+
+# Plastic SCM 변경사항 가져오기
+get_plastic_changes() {
+  LAST_BUILD_FILE="${WORKSPACE}/.last_build_changeset_dev_ios"
+  
+  CURRENT_BRANCH=$(cd "${WORKSPACE}" && $CM_PATH status --header 2>/dev/null | grep -o '/[^@]*' | head -1)
+  CURRENT_CS=$(cd "${WORKSPACE}" && $CM_PATH status --header 2>/dev/null | grep -o 'cs:[0-9]*' | sed 's/cs://')
+  
+  if [ -f "$LAST_BUILD_FILE" ]; then
+    LAST_CS=$(cat "$LAST_BUILD_FILE")
+  else
+    LAST_CS=0
+  fi
+  
+  CHANGES=$(cd "${WORKSPACE}" && $CM_PATH log --csformat="{changesetid}|{branch}|✨ {comment} ({owner})" 2>/dev/null | awk -F'|' -v br="$CURRENT_BRANCH" -v last="$LAST_CS" -v curr="$CURRENT_CS" '$2 == br && $1 > last && $1 <= curr {print $3}')
+  
+  CHANGES=$(echo "$CHANGES" | sed 's/✨  (/✨ 코멘트가 없어요! (/g')
+  
+  if [ -z "$CHANGES" ]; then
+    CHANGES="✨ 이전 빌드랑 변경된 내용이 없어요!"
+  fi
+  
+  echo "$CHANGES"
+}
+
+save_current_changeset() {
+  CURRENT_CS=$(cd "${WORKSPACE}" && $CM_PATH status --header 2>/dev/null | grep -o 'cs:[0-9]*' | sed 's/cs://')
+  if [ -n "$CURRENT_CS" ]; then
+    echo "$CURRENT_CS" > "${WORKSPACE}/.last_build_changeset_dev_ios"
+    echo "Saved current changeset: ${CURRENT_CS}"
+  fi
+}
+
+UNITY_PATH="/Applications/Unity/Hub/Editor/6000.3.9f1/Unity.app/Contents/MacOS/Unity"
+PROJECT_PATH="${WORKSPACE}"
+
+# ========== 커스텀 심볼 처리 ==========
+CUSTOM_SYMBOLS=""
+
+if [ "$IAP_TEST_MODE" = "true" ]; then
+  CUSTOM_SYMBOLS="IAP_TEST"
+  echo "⚠️ IAP_TEST 모드 활성화! (스토어 없이 구매 테스트)"
+fi
+
+if [ "$SKIP_IDENTITY_VERIFICATION" = "true" ]; then
+  CUSTOM_SYMBOLS="${CUSTOM_SYMBOLS:+$CUSTOM_SYMBOLS;}SKIP_IDENTITY_VERIFICATION"
+  echo "⚠️ SKIP_IDENTITY_VERIFICATION 모드 활성화! (본인인증 스킵)"
+fi
+# =====================================
+
+# ========== RESOURCE_MODE 처리 ==========
+RESOURCE_FLAGS=""
+RESOURCE_MODE_MSG=""
+
+if [ "$BUILD_TYPE" = "S3Only" ]; then
+  if [ "$RESOURCE_MODE" = "Skip" ] || [ -z "$RESOURCE_MODE" ]; then
+    RESOURCE_MODE="S3_New"
+    echo "⚠️ S3Only 모드에서 RESOURCE_MODE를 S3_New로 자동 설정"
+  fi
+fi
+
+case "$RESOURCE_MODE" in
+  "S3_New")
+    RESOURCE_FLAGS="-resourceMode s3_new -resourceVersion $RESOURCE_VERSION"
+    RESOURCE_MODE_MSG="S3 업로드 (버전: $RESOURCE_VERSION)"
+    echo "📦 리소스 빌드 + S3 업로드 (새 버전: $RESOURCE_VERSION)"
+    ;;
+  "S3_Overwrite")
+    RESOURCE_FLAGS="-resourceMode s3_overwrite -resourceVersion $RESOURCE_VERSION"
+    RESOURCE_MODE_MSG="S3 덮어쓰기 (버전: $RESOURCE_VERSION)"
+    echo "📦 리소스 빌드 + S3 강제 업로드 (덮어쓰기: $RESOURCE_VERSION)"
+    ;;
+  "Local")
+    RESOURCE_FLAGS="-resourceMode local"
+    RESOURCE_MODE_MSG="로컬 빌드 (앱 내장)"
+    CUSTOM_SYMBOLS="${CUSTOM_SYMBOLS:+$CUSTOM_SYMBOLS;}USE_LOCAL_BUNDLE"
+    echo "📦 로컬 번들 빌드 (앱에 내장, S3 업로드 X)"
+    ;;
+  "Skip")
+    RESOURCE_FLAGS="-resourceMode skip"
+    RESOURCE_MODE_MSG="스킵 (앱만 빌드)"
+    echo "⏭️ 리소스 빌드 스킵 (앱만 빌드)"
+    ;;
+  *)
+    RESOURCE_FLAGS="-resourceMode skip"
+    RESOURCE_MODE_MSG="스킵 (기본값)"
+    echo "⚠️ 알 수 없는 RESOURCE_MODE: $RESOURCE_MODE, Skip으로 처리"
+    ;;
+esac
+# =========================================
+
+# 빌드 전에 변경사항 가져오기
+PLASTIC_CHANGES=$(get_plastic_changes)
+echo "=== Plastic SCM Changes ==="
+echo "$PLASTIC_CHANGES"
+
+# ========== 문제 플러그인 Editor 폴더 제거 ==========
+echo "=== Removing problematic Editor folders ==="
+
+UIFX_EDITOR="${WORKSPACE}/Assets/ChocDino/UIFX-TMP/Editor"
+if [ -d "$UIFX_EDITOR" ]; then
+  rm -rf "$UIFX_EDITOR"
+  echo "Removed: $UIFX_EDITOR"
+fi
+
+AMPLIFY_EDITOR="${WORKSPACE}/Assets/AmplifyShaderEditor/Plugins/Editor"
+if [ -d "$AMPLIFY_EDITOR" ]; then
+  rm -rf "$AMPLIFY_EDITOR"
+  echo "Removed: $AMPLIFY_EDITOR"
+fi
+# ==================================================
+
+# ========== 원스토어 관련 파일 제외 (iOS 전용) ==========
+exclude_onestore
+# =====================================================
+
+# ========== 버전 & 빌드 번호 설정 (앱 빌드일 때만) ==========
+if [ "$IS_APP_BUILD" = "true" ]; then
+  echo "=== Setting App Version & Build Number ==="
+  
+  FULL_APP_VERSION="${APP_VERSION}.${BUILD_NUMBER}"
+  
+  echo "App Version (base): ${APP_VERSION}"
+  echo "Build Number: ${BUILD_NUMBER}"
+  echo "Full Version (iOS): ${FULL_APP_VERSION}"
+
+  python3 << PYEOF
+import re
+
+settings_file = "${WORKSPACE}/ProjectSettings/ProjectSettings.asset"
+app_version = "${APP_VERSION}"
+build_number = "${BUILD_NUMBER}"
+full_version = f"{app_version}.{build_number}"
+
+with open(settings_file, 'r') as f:
+    content = f.read()
+
+content = re.sub(
+    r'(bundleVersion:\s*)[\d.]+',
+    f'\\g<1>{full_version}',
+    content
+)
+
+content = re.sub(
+    r'(buildNumber:.*?iPhone:\s*)\d+',
+    f'\\g<1>{build_number}',
+    content,
+    flags=re.DOTALL
+)
+
+with open(settings_file, 'w') as f:
+    f.write(content)
+
+print(f"✅ Bundle Version (CFBundleShortVersionString): {full_version}")
+print(f"✅ Build Number (CFBundleVersion): {build_number}")
+PYEOF
+
+  echo "=== Cleaning previous iOS build ==="
+  rm -rf "${WORKSPACE}/Builds/iOS"
+else
+  echo "=== S3Only 모드 - 버전 설정 스킵 ==="
+fi
+# ===========================================================
+
+# ========== 빌드 전 좀비 프로세스 정리 ==========
+echo "=== Cleaning up stale processes ==="
+
+STALE_UNITY=$(ps aux | grep "[U]nity.*-batchmode" | grep -v grep | awk '{print $2}')
+if [ -n "$STALE_UNITY" ]; then
+  echo "이전 Unity 프로세스 발견, 종료 중: $STALE_UNITY"
+  kill -9 $STALE_UNITY 2>/dev/null || true
+  sleep 2
+fi
+
+GRADLE_PATH="/Applications/Unity/Hub/Editor/6000.3.9f1/PlaybackEngines/AndroidPlayer/Tools/gradle/bin/gradle"
+if [ -f "$GRADLE_PATH" ]; then
+  "$GRADLE_PATH" --stop 2>/dev/null || true
+fi
+find ~/.gradle -name "*.lock" -delete 2>/dev/null || true
+echo "Gradle 정리 완료"
+
+ADB_PATH="/Applications/Unity/Hub/Editor/6000.3.9f1/PlaybackEngines/AndroidPlayer/SDK/platform-tools/adb"
+if [ -f "$ADB_PATH" ]; then
+  "$ADB_PATH" kill-server 2>/dev/null || true
+fi
+echo "ADB 정리 완료"
+
+echo "좀비 프로세스 정리 완료"
+# ================================================
+
+# ========== Unity 빌드 실행 ==========
+echo "=== Unity Build Command ==="
+
+if [ "$BUILD_TYPE" = "S3Only" ]; then
+  echo "$UNITY_PATH -batchmode -quit -projectPath $PROJECT_PATH -executeMethod $BUILD_METHOD $RESOURCE_FLAGS"
+  
+  $UNITY_PATH \
+    -batchmode \
+    -quit \
+    -projectPath "$PROJECT_PATH" \
+    -executeMethod $BUILD_METHOD \
+    $RESOURCE_FLAGS \
+    -logFile "${WORKSPACE}/build.log" 2>&1
+else
+  echo "$UNITY_PATH -batchmode -quit -projectPath $PROJECT_PATH -executeMethod $BUILD_METHOD -customSymbols \"$CUSTOM_SYMBOLS\" $RESOURCE_FLAGS"
+  
+  $UNITY_PATH \
+    -batchmode \
+    -quit \
+    -projectPath "$PROJECT_PATH" \
+    -executeMethod $BUILD_METHOD \
+    -customSymbols "$CUSTOM_SYMBOLS" \
+    $RESOURCE_FLAGS \
+    -logFile "${WORKSPACE}/build.log" 2>&1
+fi
+
+BUILD_RESULT=$?
+
+echo "=== Build Log (last 100 lines) ==="
+tail -100 "${WORKSPACE}/build.log"
+
+if [ $BUILD_RESULT -ne 0 ]; then
+  echo "❌ Unity Build Failed!"
+  send_fail_message "Unity"
+  upload_log_to_slack "$MAIN_TS"
+  exit 1
+fi
+
+echo "✅ Unity Build Success!"
+
+# ========== S3Only 모드: 여기서 종료 ==========
+if [ "$BUILD_TYPE" = "S3Only" ]; then
+  echo "=== S3 리소스 빌드 완료 (앱 빌드 없음) ==="
+  
+  restore_onestore
+  
+  save_current_changeset
+  
+  MAIN_TS=$(python3 << PYEOF
+import json
+import urllib.request
+
+channel = "C0A12TDUBK3"
+token = "${SLACK_TOKEN}"
+build_num = "${BUILD_NUMBER}"
+resource_mode_msg = "${RESOURCE_MODE_MSG}"
+
+message = f"""☁️ *ATOZPOKER S3 리소스 빌드 #{build_num}* (iOS) 완료됐어요!
+
+🗂️ *리소스:* {resource_mode_msg}"""
+
+payload = json.dumps({
+    "channel": channel,
+    "text": message
+})
+
+req = urllib.request.Request(
+    "https://slack.com/api/chat.postMessage",
+    data=payload.encode('utf-8'),
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+)
+response = urllib.request.urlopen(req)
+resp_data = json.loads(response.read().decode('utf-8'))
+print(resp_data.get("ts", ""), end="")
+PYEOF
+  )
+  
+  echo "S3Only 메인 메시지 ts: $MAIN_TS"
+  send_changes_thread "C0A12TDUBK3" "$MAIN_TS" "$PLASTIC_CHANGES"
+  
+  exit 0
+fi
+# =============================================
+
+# ========== CocoaPods 설치 ==========
+echo "=== Installing CocoaPods ==="
+cd "${WORKSPACE}/Builds/iOS"
+pod install --repo-update
+
+if [ $? -ne 0 ]; then
+  echo "❌ Pod install failed!"
+  send_fail_message "CocoaPods"
+  upload_log_to_slack "$MAIN_TS"
+  exit 1
+fi
+# ===================================
+
+# ========== Xcode 프로젝트 Signing 자동 설정 ==========
+echo "=== Configuring Xcode Signing ==="
+
+PBXPROJ="${WORKSPACE}/Builds/iOS/Unity-iPhone.xcodeproj/project.pbxproj"
+
+sed -i '' 's/ProvisioningStyle = Manual/ProvisioningStyle = Automatic/g' "$PBXPROJ"
+sed -i '' 's/CODE_SIGN_STYLE = Manual/CODE_SIGN_STYLE = Automatic/g' "$PBXPROJ"
+
+sed -i '' 's/DEVELOPMENT_TEAM = "";/DEVELOPMENT_TEAM = 5YMK95F8NQ;/g' "$PBXPROJ"
+sed -i '' 's/DEVELOPMENT_TEAM = "[^"]*";/DEVELOPMENT_TEAM = "5YMK95F8NQ";/g' "$PBXPROJ"
+
+echo "✅ Xcode signing configured!"
+# =====================================================
+
+# ========== ExportOptions.plist 동적 생성 ==========
+echo "=== Creating ExportOptions.plist ==="
+
+cat > "${WORKSPACE}/ExportOptions.plist" << 'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>method</key>
+    <string>app-store-connect</string>
+    <key>teamID</key>
+    <string>5YMK95F8NQ</string>
+    <key>signingStyle</key>
+    <string>automatic</string>
+    <key>uploadSymbols</key>
+    <true/>
+    <key>destination</key>
+    <string>upload</string>
+</dict>
+</plist>
+EOF
+
+echo "✅ ExportOptions.plist created!"
+# ==================================================
+
+# ========== Xcode Archive & Export ==========
+echo "=== Building IPA with xcodebuild ==="
+XCODE_WORKSPACE="${WORKSPACE}/Builds/iOS/Unity-iPhone.xcworkspace"
+ARCHIVE_PATH="${WORKSPACE}/Builds/iOS/ATOZPOKER.xcarchive"
+IPA_PATH="${WORKSPACE}/Builds/iOS"
+
+xcodebuild -workspace "$XCODE_WORKSPACE" \
+  -scheme "Unity-iPhone" \
+  -configuration Release \
+  -destination "generic/platform=iOS" \
+  -archivePath "$ARCHIVE_PATH" \
+  archive \
+  -allowProvisioningUpdates \
+  CODE_SIGN_STYLE="Automatic" \
+  DEVELOPMENT_TEAM="5YMK95F8NQ"
+
+ARCHIVE_RESULT=$?
+
+if [ $ARCHIVE_RESULT -ne 0 ]; then
+  echo "❌ Xcode Archive Failed!"
+  send_fail_message "Xcode Archive"
+  upload_log_to_slack "$MAIN_TS"
+  exit 1
+fi
+
+xcodebuild -exportArchive \
+  -archivePath "$ARCHIVE_PATH" \
+  -exportPath "$IPA_PATH" \
+  -exportOptionsPlist "${WORKSPACE}/ExportOptions.plist" \
+  -allowProvisioningUpdates
+
+EXPORT_RESULT=$?
+
+if [ $EXPORT_RESULT -ne 0 ]; then
+  echo "❌ IPA Export Failed!"
+  send_fail_message "IPA Export"
+  upload_log_to_slack "$MAIN_TS"
+  exit 1
+fi
+# ============================================
+
+echo "✅ Build & TestFlight Upload Success!"
+
+# ========== 원스토어 플러그인 복원 ==========
+restore_onestore
+# ==========================================
+
+save_current_changeset
+
+# ========== Slack 성공 메시지 전송 ==========
+echo "=== Sending Slack Notification ==="
+
+MAIN_TS=$(python3 << PYEOF
+import json
+import urllib.request
+
+channel = "C0A12TDUBK3"
+token = "${SLACK_TOKEN}"
+build_num = "${BUILD_NUMBER}"
+app_version = "${APP_VERSION}"
+full_version = f"{app_version}.{build_num}"
+iap_test = "${IAP_TEST_MODE}"
+build_type_msg = "${BUILD_TYPE_MSG}"
+resource_mode_msg = "${RESOURCE_MODE_MSG}"
+skip_identity = "${SKIP_IDENTITY_VERIFICATION}"
+
+iap_warning = "\n⚠️ *IAP_TEST 모드* (스토어 없이 구매 테스트)" if iap_test == "true" else ""
+skip_identity_warning = "\n⚠️ *본인인증 스킵 모드*" if skip_identity == "true" else ""
+
+message = f"""✅ *ATOZPOKER Dev iOS Build #{build_num}* 완료됐어요!{iap_warning}{skip_identity_warning}
+
+📦 *빌드 타입:* {build_type_msg}
+📱 *버전:* {full_version}
+🗂️ *리소스:* {resource_mode_msg}
+🚀 *TestFlight 업로드 완료!*
+TestFlight 앱에서 새 버전을 설치할 수 있어요."""
+
+payload = json.dumps({
+    "channel": channel,
+    "text": message
+})
+
+req = urllib.request.Request(
+    "https://slack.com/api/chat.postMessage",
+    data=payload.encode('utf-8'),
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+)
+response = urllib.request.urlopen(req)
+resp_data = json.loads(response.read().decode('utf-8'))
+print(resp_data.get("ts", ""), end="")
+PYEOF
+)
+
+echo "iOS 성공 메인 메시지 ts: $MAIN_TS"
+send_changes_thread "C0A12TDUBK3" "$MAIN_TS" "$PLASTIC_CHANGES"
+
+echo "=== Build Complete ==="
+exit 0

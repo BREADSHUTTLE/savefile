@@ -1,0 +1,504 @@
+#!/bin/bash
+
+CM_PATH="/usr/local/bin/cm"
+
+# ========== BUILD_TYPE 처리 (APK/AAB/S3Only) ==========
+if [ "$BUILD_TYPE" = "AAB" ]; then
+  BUILD_METHOD="BuildScript.BuildAndroidAAB"
+  OUTPUT_FILE="${WORKSPACE}/Builds/Android/ATOZPOKER.aab"
+  FILE_EXT="aab"
+  BUILD_TYPE_MSG="AAB (Google Play)"
+  IS_APP_BUILD="true"
+  echo "📦 AAB 빌드 모드 (Google Play 업로드용)"
+elif [ "$BUILD_TYPE" = "S3Only" ]; then
+  BUILD_METHOD="BuildScript.BuildAddressablesOnly"
+  OUTPUT_FILE=""
+  FILE_EXT=""
+  BUILD_TYPE_MSG="S3 리소스만"
+  IS_APP_BUILD="false"
+  echo "☁️ S3 리소스만 빌드 (앱 빌드 X)"
+else
+  BUILD_METHOD="BuildScript.BuildAndroid"
+  OUTPUT_FILE="${WORKSPACE}/Builds/Android/ATOZPOKER.apk"
+  FILE_EXT="apk"
+  BUILD_TYPE_MSG="APK (Dev)"
+  IS_APP_BUILD="true"
+  echo "📦 APK 빌드 모드 (개발 테스트용)"
+fi
+# ======================================================
+
+# ========== STORE_TYPE 처리 (Google/OneStore) ==========
+if [ "$STORE_TYPE" = "onestore" ]; then
+  STORE_TYPE_FLAG="-storeType onestore"
+  STORE_TYPE_MSG="원스토어"
+  echo "🏪 원스토어 빌드"
+else
+  STORE_TYPE_FLAG="-storeType google"
+  STORE_TYPE_MSG="구글 플레이"
+  echo "🏪 구글 플레이 빌드"
+fi
+# =======================================================
+
+# 로그 업로드 함수 (스레드에 첨부)
+upload_log_to_slack() {
+  local THREAD_TS=$1
+  echo "=== Uploading Build Log to Slack ==="
+  LOG_FILE="${WORKSPACE}/build.log"
+  LOG_SIZE=$(stat -f%z "$LOG_FILE")
+  
+  RESPONSE=$(curl -s -X POST \
+    -H "Authorization: Bearer ${SLACK_TOKEN}" \
+    -H "Content-Type: application/x-www-form-urlencoded; charset=utf-8" \
+    --data "filename=FAILED_Dev_Android_log_${BUILD_NUMBER}.txt&length=${LOG_SIZE}" \
+    https://slack.com/api/files.getUploadURLExternal)
+  
+  UPLOAD_URL=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('upload_url',''))")
+  FILE_ID=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('file_id',''))")
+  
+  curl -s -X POST "$UPLOAD_URL" -F file=@"$LOG_FILE"
+  
+  if [ -n "$THREAD_TS" ]; then
+    THREAD_JSON=",\"thread_ts\":\"${THREAD_TS}\""
+  else
+    THREAD_JSON=""
+  fi
+  
+  curl -s -X POST \
+    -H "Authorization: Bearer ${SLACK_TOKEN}" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    --data "{\"files\":[{\"id\":\"${FILE_ID}\",\"title\":\"Dev Android Build Log #${BUILD_NUMBER} (FAILED)\"}],\"channel_id\":\"C0A12TDUBK3\"${THREAD_JSON}}" \
+    https://slack.com/api/files.completeUploadExternal
+}
+
+# Plastic SCM 변경사항 가져오기
+get_plastic_changes() {
+  LAST_BUILD_FILE="${WORKSPACE}/.last_build_changeset_dev_android"
+  
+  CURRENT_BRANCH=$(cd "${WORKSPACE}" && $CM_PATH status --header 2>/dev/null | grep -o '/[^@]*' | head -1)
+  CURRENT_CS=$(cd "${WORKSPACE}" && $CM_PATH status --header 2>/dev/null | grep -o 'cs:[0-9]*' | sed 's/cs://')
+  
+  if [ -f "$LAST_BUILD_FILE" ]; then
+    LAST_CS=$(cat "$LAST_BUILD_FILE")
+  else
+    LAST_CS=0
+  fi
+  
+  CHANGES=$(cd "${WORKSPACE}" && $CM_PATH log --csformat="{changesetid}|{branch}|✨ {comment} ({owner})" 2>/dev/null | awk -F'|' -v br="$CURRENT_BRANCH" -v last="$LAST_CS" -v curr="$CURRENT_CS" '$2 == br && $1 > last && $1 <= curr {print $3}')
+  
+  CHANGES=$(echo "$CHANGES" | sed 's/✨  (/✨ 코멘트가 없어요! (/g')
+  
+  if [ -z "$CHANGES" ]; then
+    CHANGES="✨ 이전 빌드랑 변경된 내용이 없어요!"
+  fi
+  
+  echo "$CHANGES"
+}
+
+save_current_changeset() {
+  CURRENT_CS=$(cd "${WORKSPACE}" && $CM_PATH status --header 2>/dev/null | grep -o 'cs:[0-9]*' | sed 's/cs://')
+  if [ -n "$CURRENT_CS" ]; then
+    echo "$CURRENT_CS" > "${WORKSPACE}/.last_build_changeset_dev_android"
+    echo "Saved current changeset: ${CURRENT_CS}"
+  fi
+}
+
+# 변경사항을 스레드로 전송하는 공통 함수
+send_changes_thread() {
+  local THREAD_CHANNEL=$1
+  local THREAD_TS=$2
+  local THREAD_CHANGES=$3
+  
+  if [ -n "$THREAD_TS" ] && [ -n "$THREAD_CHANGES" ]; then
+    python3 << PYEOF
+import json
+import urllib.request
+
+channel = "${THREAD_CHANNEL}"
+thread_ts = "${THREAD_TS}"
+token = "${SLACK_TOKEN}"
+changes = '''${THREAD_CHANGES}'''
+
+if changes.strip():
+    payload = json.dumps({
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "text": f"📝 *변경사항:*\n{changes}"
+    })
+    req = urllib.request.Request(
+        "https://slack.com/api/chat.postMessage",
+        data=payload.encode('utf-8'),
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8"
+        }
+    )
+    resp = urllib.request.urlopen(req)
+    resp_data = json.loads(resp.read().decode('utf-8'))
+    print(f"스레드 전송 결과: {resp_data.get('ok')}")
+PYEOF
+  fi
+}
+
+UNITY_PATH="/Applications/Unity/Hub/Editor/6000.3.9f1/Unity.app/Contents/MacOS/Unity"
+PROJECT_PATH="${WORKSPACE}"
+
+# ========== 커스텀 심볼 처리 ==========
+CUSTOM_SYMBOLS=""
+
+if [ "$IAP_TEST_MODE" = "true" ]; then
+  CUSTOM_SYMBOLS="IAP_TEST"
+  echo "⚠️ IAP_TEST 모드 활성화! (스토어 없이 구매 테스트)"
+fi
+
+if [ "$SKIP_IDENTITY_VERIFICATION" = "true" ]; then
+  CUSTOM_SYMBOLS="${CUSTOM_SYMBOLS:+$CUSTOM_SYMBOLS;}SKIP_IDENTITY_VERIFICATION"
+  echo "⚠️ SKIP_IDENTITY_VERIFICATION 모드 활성화! (본인인증 스킵)"
+fi
+# =====================================
+
+# ========== RESOURCE_MODE 처리 ==========
+RESOURCE_FLAGS=""
+RESOURCE_MODE_MSG=""
+
+if [ "$BUILD_TYPE" = "S3Only" ]; then
+  if [ "$RESOURCE_MODE" = "Skip" ] || [ -z "$RESOURCE_MODE" ]; then
+    RESOURCE_MODE="S3_New"
+    echo "⚠️ S3Only 모드에서 RESOURCE_MODE를 S3_New로 자동 설정"
+  fi
+fi
+
+case "$RESOURCE_MODE" in
+  "S3_New")
+    RESOURCE_FLAGS="-resourceMode s3_new -resourceVersion $RESOURCE_VERSION"
+    RESOURCE_MODE_MSG="S3 업로드 (버전: $RESOURCE_VERSION)"
+    echo "📦 리소스 빌드 + S3 업로드 (새 버전: $RESOURCE_VERSION)"
+    ;;
+  "S3_Overwrite")
+    RESOURCE_FLAGS="-resourceMode s3_overwrite -resourceVersion $RESOURCE_VERSION"
+    RESOURCE_MODE_MSG="S3 덮어쓰기 (버전: $RESOURCE_VERSION)"
+    echo "📦 리소스 빌드 + S3 강제 업로드 (덮어쓰기: $RESOURCE_VERSION)"
+    ;;
+  "Local")
+    RESOURCE_FLAGS="-resourceMode local"
+    RESOURCE_MODE_MSG="로컬 빌드 (앱 내장)"
+    CUSTOM_SYMBOLS="${CUSTOM_SYMBOLS:+$CUSTOM_SYMBOLS;}USE_LOCAL_BUNDLE"
+    echo "📦 로컬 번들 빌드 (앱에 내장, S3 업로드 X)"
+    ;;
+  "Skip")
+    RESOURCE_FLAGS="-resourceMode skip"
+    RESOURCE_MODE_MSG="스킵 (앱만 빌드)"
+    echo "⏭️ 리소스 빌드 스킵 (앱만 빌드)"
+    ;;
+  *)
+    RESOURCE_FLAGS="-resourceMode skip"
+    RESOURCE_MODE_MSG="스킵 (기본값)"
+    echo "⚠️ 알 수 없는 RESOURCE_MODE: $RESOURCE_MODE, Skip으로 처리"
+    ;;
+esac
+# =========================================
+
+PLASTIC_CHANGES=$(get_plastic_changes)
+echo "=== Plastic SCM Changes ==="
+echo "$PLASTIC_CHANGES"
+
+# ========== 문제 플러그인 Editor 폴더 제거 ==========
+echo "=== Removing problematic Editor folders ==="
+
+UIFX_EDITOR="${WORKSPACE}/Assets/ChocDino/UIFX-TMP/Editor"
+if [ -d "$UIFX_EDITOR" ]; then
+  rm -rf "$UIFX_EDITOR"
+  echo "Removed: $UIFX_EDITOR"
+fi
+
+AMPLIFY_EDITOR="${WORKSPACE}/Assets/AmplifyShaderEditor/Plugins/Editor"
+if [ -d "$AMPLIFY_EDITOR" ]; then
+  rm -rf "$AMPLIFY_EDITOR"
+  echo "Removed: $AMPLIFY_EDITOR"
+fi
+# ==================================================
+
+# ========== 버전 & 빌드 번호 설정 (앱 빌드일 때만) ==========
+if [ "$IS_APP_BUILD" = "true" ]; then
+  echo "=== Setting App Version & Build Number ==="
+
+  python3 << PYEOF
+import re
+
+settings_file = "${WORKSPACE}/ProjectSettings/ProjectSettings.asset"
+app_version = "${APP_VERSION}"
+build_number = "${BUILD_NUMBER}"
+full_version = f"{app_version}.{build_number}"
+
+with open(settings_file, 'r') as f:
+    content = f.read()
+
+content = re.sub(r'(bundleVersion:\s*)[\d.]+', f'\\g<1>{full_version}', content)
+content = re.sub(r'(AndroidBundleVersionCode:\s*)\d+', f'\\g<1>{build_number}', content)
+
+with open(settings_file, 'w') as f:
+    f.write(content)
+
+print(f"✅ App Version: {full_version}")
+print(f"✅ Build Number (versionCode): {build_number}")
+PYEOF
+else
+  echo "=== S3Only 모드 - 버전 설정 스킵 ==="
+fi
+# ===========================================================
+
+# ========== 빌드 전 좀비 프로세스 정리 ==========
+echo "=== Cleaning up stale processes ==="
+
+STALE_UNITY=$(ps aux | grep "[U]nity.*-batchmode" | grep -v grep | awk '{print $2}')
+if [ -n "$STALE_UNITY" ]; then
+  echo "이전 Unity 프로세스 발견, 종료 중: $STALE_UNITY"
+  kill -9 $STALE_UNITY 2>/dev/null || true
+  sleep 2
+fi
+
+GRADLE_PATH="/Applications/Unity/Hub/Editor/6000.3.9f1/PlaybackEngines/AndroidPlayer/Tools/gradle/bin/gradle"
+if [ -f "$GRADLE_PATH" ]; then
+  "$GRADLE_PATH" --stop 2>/dev/null || true
+fi
+find ~/.gradle -name "*.lock" -delete 2>/dev/null || true
+echo "Gradle 정리 완료"
+
+ADB_PATH="/Applications/Unity/Hub/Editor/6000.3.9f1/PlaybackEngines/AndroidPlayer/SDK/platform-tools/adb"
+if [ -f "$ADB_PATH" ]; then
+  "$ADB_PATH" kill-server 2>/dev/null || true
+fi
+echo "ADB 정리 완료"
+
+echo "좀비 프로세스 정리 완료"
+# ================================================
+
+# ========== Unity 빌드 실행 ==========
+echo "=== Unity Build Command ==="
+
+if [ "$BUILD_TYPE" = "S3Only" ]; then
+  echo "$UNITY_PATH -batchmode -quit -projectPath $PROJECT_PATH -executeMethod $BUILD_METHOD $RESOURCE_FLAGS"
+  
+  $UNITY_PATH \
+    -batchmode \
+    -quit \
+    -projectPath "$PROJECT_PATH" \
+    -executeMethod $BUILD_METHOD \
+    $RESOURCE_FLAGS \
+    -logFile "${WORKSPACE}/build.log" 2>&1
+else
+  echo "$UNITY_PATH -batchmode -quit -projectPath $PROJECT_PATH -executeMethod $BUILD_METHOD $STORE_TYPE_FLAG -customSymbols \"$CUSTOM_SYMBOLS\" $RESOURCE_FLAGS"
+  
+  $UNITY_PATH \
+    -batchmode \
+    -quit \
+    -projectPath "$PROJECT_PATH" \
+    -executeMethod $BUILD_METHOD \
+    $STORE_TYPE_FLAG \
+    -customSymbols "$CUSTOM_SYMBOLS" \
+    $RESOURCE_FLAGS \
+    -logFile "${WORKSPACE}/build.log" 2>&1
+fi
+
+BUILD_RESULT=$?
+
+echo "=== Build Log (last 100 lines) ==="
+tail -100 "${WORKSPACE}/build.log"
+
+# ========== 빌드 결과 처리 ==========
+if [ $BUILD_RESULT -eq 0 ]; then
+  echo "✅ Build Success!"
+  
+  save_current_changeset
+  
+  # ========== S3Only 모드: 메시지만 전송 ==========
+  if [ "$BUILD_TYPE" = "S3Only" ]; then
+    echo "=== S3 리소스 빌드 완료 (앱 업로드 없음) ==="
+    
+    MAIN_TS=$(python3 << PYEOF
+import json
+import urllib.request
+
+channel = "C0A12TDUBK3"
+token = "${SLACK_TOKEN}"
+build_num = "${BUILD_NUMBER}"
+resource_mode_msg = "${RESOURCE_MODE_MSG}"
+
+message = f"""☁️ *ATOZPOKER S3 리소스 빌드 #{build_num}* 완료됐어요!
+
+🗂️ *리소스:* {resource_mode_msg}"""
+
+payload = json.dumps({
+    "channel": channel,
+    "text": message
+})
+
+req = urllib.request.Request(
+    "https://slack.com/api/chat.postMessage",
+    data=payload.encode('utf-8'),
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+)
+response = urllib.request.urlopen(req)
+resp_data = json.loads(response.read().decode('utf-8'))
+print(resp_data.get("ts", ""), end="")
+PYEOF
+    )
+    
+    echo "S3Only 메인 메시지 ts: $MAIN_TS"
+    send_changes_thread "C0A12TDUBK3" "$MAIN_TS" "$PLASTIC_CHANGES"
+    
+    exit 0
+  fi
+  # ================================================
+  
+  # ========== APK/AAB 모드: 파일 업로드 ==========
+  echo "=== Uploading to Slack ==="
+  
+  FILE_SIZE=$(stat -f%z "$OUTPUT_FILE")
+  CHANNEL_ID="C0A12TDUBK3"
+  
+  RESPONSE=$(curl -s -X POST \
+    -H "Authorization: Bearer ${SLACK_TOKEN}" \
+    -H "Content-Type: application/x-www-form-urlencoded; charset=utf-8" \
+    --data "filename=ATOZPOKER_Dev_Android_$(date +%Y%m%d)_${BUILD_NUMBER}.${FILE_EXT}&length=${FILE_SIZE}" \
+    https://slack.com/api/files.getUploadURLExternal)
+  
+  UPLOAD_URL=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('upload_url',''))")
+  FILE_ID=$(echo $RESPONSE | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('file_id',''))")
+  
+  curl -s -X POST "$UPLOAD_URL" -F file=@"$OUTPUT_FILE"
+  
+  MAIN_TS=$(python3 << PYEOF
+import json
+import urllib.request
+import time
+
+file_id = "${FILE_ID}"
+channel = "${CHANNEL_ID}"
+token = "${SLACK_TOKEN}"
+build_num = "${BUILD_NUMBER}"
+app_version = "${APP_VERSION}"
+date_str = "$(date +%Y%m%d)"
+iap_test = "${IAP_TEST_MODE}"
+build_type_msg = "${BUILD_TYPE_MSG}"
+file_ext = "${FILE_EXT}"
+resource_mode_msg = "${RESOURCE_MODE_MSG}"
+skip_identity = "${SKIP_IDENTITY_VERIFICATION}"
+store_type_msg = "${STORE_TYPE_MSG}"
+
+full_version = f"{app_version}.{build_num}"
+iap_warning = "\n⚠️ *IAP_TEST 모드* (스토어 없이 구매 테스트)" if iap_test == "true" else ""
+skip_identity_warning = "\n⚠️ *본인인증 스킵 모드*" if skip_identity == "true" else ""
+
+message = f"""✅ *ATOZPOKER Dev Android Build #{build_num}* 완료됐어요!{iap_warning}{skip_identity_warning}
+
+🏪 *스토어:* {store_type_msg}
+📦 *빌드 타입:* {build_type_msg}
+🗂️ *리소스:* {resource_mode_msg}
+📱 *버전:* {full_version} ({build_num})"""
+
+# 1) 파일 + 메인 메시지를 채널에 전송
+payload = json.dumps({
+    "files": [{"id": file_id, "title": f"ATOZPOKER_Dev_Android_{date_str}_{build_num}.{file_ext}"}],
+    "channel_id": channel,
+    "initial_comment": message
+})
+
+req = urllib.request.Request(
+    "https://slack.com/api/files.completeUploadExternal",
+    data=payload.encode('utf-8'),
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+)
+urllib.request.urlopen(req)
+
+# 2) Slack 인덱싱 대기 후, 최신 메시지에서 ts 찾기 (최대 10회 재시도)
+msg_ts = ""
+for attempt in range(10):
+    time.sleep(3)
+    history_req = urllib.request.Request(
+        f"https://slack.com/api/conversations.history?channel={channel}&limit=1",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json; charset=utf-8"
+        }
+    )
+    history_resp = urllib.request.urlopen(history_req)
+    history_data = json.loads(history_resp.read().decode('utf-8'))
+    
+    if history_data.get("ok"):
+        messages = history_data.get("messages", [])
+        if messages:
+            latest = messages[0]
+            if f"Build #{build_num}" in latest.get("text", ""):
+                msg_ts = latest.get("ts", "")
+                break
+    
+    import sys
+    print(f"시도 {attempt + 1}/5: 아직 메시지를 못 찾음, 3초 후 재시도...", file=sys.stderr)
+
+if not msg_ts:
+    import sys
+    print("경고: 메시지 ts를 찾지 못했습니다", file=sys.stderr)
+
+print(msg_ts, end="")
+PYEOF
+  )
+  
+  echo "APK/AAB 메인 메시지 ts: $MAIN_TS"
+  send_changes_thread "$CHANNEL_ID" "$MAIN_TS" "$PLASTIC_CHANGES"
+  
+  echo "=== Upload Complete ==="
+  exit 0
+
+else
+  echo "❌ Build Failed!"
+  
+  MAIN_TS=$(python3 << PYEOF
+import json
+import urllib.request
+
+channel = "C0A12TDUBK3"
+token = "${SLACK_TOKEN}"
+build_num = "${BUILD_NUMBER}"
+build_type_msg = "${BUILD_TYPE_MSG}"
+resource_mode_msg = "${RESOURCE_MODE_MSG}"
+skip_identity = "${SKIP_IDENTITY_VERIFICATION}"
+store_type_msg = "${STORE_TYPE_MSG}"
+is_app_build = "${IS_APP_BUILD}"
+
+skip_identity_warning = "\n⚠️ 본인인증 스킵 모드" if skip_identity == "true" else ""
+store_info = f"\n🏪 *스토어:* {store_type_msg}" if is_app_build == "true" else ""
+
+message = f"❌ *ATOZPOKER Dev Android Build #{build_num}* 실패했어요!{skip_identity_warning}{store_info}\n\n📦 *빌드 타입:* {build_type_msg}\n🗂️ *리소스:* {resource_mode_msg}"
+
+payload = json.dumps({
+    "channel": channel,
+    "text": message
+})
+
+req = urllib.request.Request(
+    "https://slack.com/api/chat.postMessage",
+    data=payload.encode('utf-8'),
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json; charset=utf-8"
+    }
+)
+response = urllib.request.urlopen(req)
+resp_data = json.loads(response.read().decode('utf-8'))
+print(resp_data.get("ts", ""), end="")
+PYEOF
+  )
+  
+  echo "실패 메인 메시지 ts: $MAIN_TS"
+  send_changes_thread "C0A12TDUBK3" "$MAIN_TS" "$PLASTIC_CHANGES"
+  
+  upload_log_to_slack "$MAIN_TS"
+  
+  exit 1
+fi
