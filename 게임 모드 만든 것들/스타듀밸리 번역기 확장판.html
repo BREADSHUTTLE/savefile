@@ -1,0 +1,2359 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>번역 JSON 파일 비교 도구</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e1e4e8; min-height: 100vh; }
+
+  .header { padding: 20px 32px; background: #161b22; border-bottom: 1px solid #30363d; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .header h1 { font-size: 20px; font-weight: 600; }
+  .header .badge { background: #238636; color: #fff; padding: 2px 10px; border-radius: 12px; font-size: 12px; }
+  .header-actions { display: flex; gap: 10px; }
+  #btn-reset { margin-left: auto; }
+
+  .btn {
+    padding: 8px 18px; border-radius: 8px; border: 1px solid #30363d; background: #21262d;
+    color: #c9d1d9; font-size: 13px; cursor: pointer; transition: all .15s; font-weight: 500;
+  }
+  .btn:hover { background: #30363d; }
+  .btn-primary { background: #238636; border-color: #238636; color: #fff; }
+  .btn-primary:hover { background: #2ea043; }
+  .btn-primary:disabled { opacity: .4; cursor: default; }
+  .btn-warn { background: #9e6a03; border-color: #9e6a03; color: #fff; }
+  .btn-warn:hover { background: #bb8009; }
+
+  .edit-count { font-size: 12px; color: #f0883e; margin-left: 8px; }
+
+  .drop-zone-wrap { display: flex; gap: 16px; padding: 24px 32px; }
+  .drop-zone {
+    flex: 1; border: 2px dashed #30363d; border-radius: 12px; padding: 32px; text-align: center;
+    cursor: pointer; transition: all .2s; background: #161b22; position: relative;
+  }
+  .drop-zone:hover, .drop-zone.dragover { border-color: #58a6ff; background: #1a2233; }
+  .drop-zone.loaded { border-color: #238636; border-style: solid; }
+  .drop-zone h3 { font-size: 15px; margin-bottom: 6px; }
+  .drop-zone p { font-size: 13px; color: #8b949e; }
+  .drop-zone .count { margin-top: 10px; font-size: 13px; color: #58a6ff; }
+  .drop-zone input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .drop-zone.loaded input[type=file] { display: none; }
+
+  .toolbar { padding: 12px 32px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .toolbar input[type=text] {
+    flex: 1; min-width: 200px; padding: 8px 14px; border-radius: 8px; border: 1px solid #30363d;
+    background: #0d1117; color: #e1e4e8; font-size: 14px; outline: none;
+  }
+  .toolbar input[type=text]:focus { border-color: #58a6ff; }
+  .toolbar .filter-btn {
+    padding: 7px 16px; border-radius: 8px; border: 1px solid #30363d; background: #21262d;
+    color: #c9d1d9; font-size: 13px; cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .toolbar .filter-btn:hover { background: #30363d; }
+  .toolbar .filter-btn.active { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+
+  .stats { padding: 4px 32px 12px; display: flex; gap: 20px; font-size: 13px; color: #8b949e; flex-wrap: wrap; }
+  .stats span { display: inline-flex; align-items: center; gap: 5px; }
+  .stats .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .dot-missing { background: #f85149; }
+  .dot-extra { background: #d29922; }
+  .dot-match { background: #238636; }
+  .dot-empty { background: #6e40c9; }
+  .dot-renamed { background: #58a6ff; }
+  .dot-edited { background: #f0883e; }
+  .dot-untranslated { background: #e55b3c; }
+  .tag-untranslated { background: #e55b3c22; color: #e55b3c; }
+
+  .table-wrap { padding: 0 32px 40px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+  th { position: sticky; top: 0; background: #161b22; text-align: left; padding: 10px 14px; border-bottom: 2px solid #30363d; font-weight: 600; z-index: 2; }
+  td { padding: 8px 14px; border-bottom: 1px solid #21262d; vertical-align: top; word-break: break-word; }
+  tr:hover td { background: #1c2128; }
+  tr.row-edited { border-left: 3px solid #f0883e; }
+  .col-status { width: 80px; }
+  .col-key { width: 25%; }
+  .col-base { width: 28%; }
+  .col-target { width: 33%; }
+
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; }
+  .tag-missing { background: #f8514922; color: #f85149; }
+  .tag-extra { background: #d2992222; color: #d29922; }
+  .tag-match { background: #23863622; color: #3fb950; }
+  .tag-empty { background: #6e40c922; color: #a371f7; }
+  .tag-renamed { background: #58a6ff22; color: #58a6ff; }
+  .tag-edited { background: #f0883e22; color: #f0883e; font-size: 9px; margin-left: 4px; vertical-align: middle; }
+
+  .empty-state { text-align: center; padding: 80px 32px; color: #484f58; }
+  .empty-state h2 { font-size: 18px; margin-bottom: 8px; color: #8b949e; }
+
+  .copy-btn, .action-btn {
+    opacity: 0; padding: 2px 8px; border: 1px solid #30363d; background: #21262d; color: #8b949e;
+    border-radius: 4px; font-size: 11px; cursor: pointer; transition: all .15s; margin-left: 4px;
+  }
+  tr:hover .copy-btn, tr:hover .action-btn { opacity: 1; }
+  .copy-btn:hover, .action-btn:hover { color: #e1e4e8; border-color: #58a6ff; }
+  .action-btn-apply { border-color: #238636; color: #3fb950; }
+  .action-btn-apply:hover { background: #23863633; }
+  .action-btn-del { border-color: #f85149; color: #f85149; }
+  .action-btn-del:hover { background: #f8514933; }
+
+  .val-cell {
+    white-space: pre-wrap; font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px; line-height: 1.5;
+  }
+  .val-cell.editable { cursor: text; border-radius: 4px; transition: background .15s; min-height: 24px; }
+  .val-cell.editable:hover { background: #161b22; }
+
+  .edit-area {
+    width: 100%; min-height: 60px; padding: 8px; border-radius: 6px;
+    border: 1px solid #58a6ff; background: #0d1117; color: #e1e4e8;
+    font-family: 'Cascadia Code', 'Consolas', monospace; font-size: 12px;
+    line-height: 1.5; resize: vertical; outline: none;
+  }
+  .edit-actions { margin-top: 6px; display: flex; gap: 6px; }
+  .edit-actions button {
+    padding: 4px 12px; border-radius: 6px; font-size: 11px; cursor: pointer; border: none; font-weight: 500;
+  }
+  .edit-save { background: #238636; color: #fff; }
+  .edit-save:hover { background: #2ea043; }
+  .edit-cancel { background: #21262d; color: #c9d1d9; border: 1px solid #30363d !important; }
+  .edit-cancel:hover { background: #30363d; }
+
+  .rename-old { color: #f85149; text-decoration: line-through; opacity: .7; }
+  .rename-new { color: #3fb950; }
+  .similarity { font-size: 10px; color: #8b949e; margin-left: 6px; }
+  .diff-add { background: #23863633; padding: 0 2px; border-radius: 2px; }
+  .diff-del { background: #f8514933; padding: 0 2px; border-radius: 2px; text-decoration: line-through; }
+
+  .toast {
+    position: fixed; bottom: 24px; right: 24px; background: #238636; color: #fff;
+    padding: 12px 24px; border-radius: 10px; font-size: 14px; font-weight: 500;
+    opacity: 0; transform: translateY(20px); transition: all .3s; z-index: 100; pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+
+  .unsaved-bar {
+    position: sticky; bottom: 0; left: 0; right: 0; background: #1c1208; border-top: 1px solid #9e6a03;
+    padding: 12px 32px; display: none; align-items: center; gap: 16px; z-index: 50;
+  }
+  .unsaved-bar.visible { display: flex; }
+  .unsaved-bar span { font-size: 13px; color: #f0883e; }
+
+  .translate-bar {
+    padding: 8px 32px; display: none; gap: 12px; align-items: center; flex-wrap: wrap;
+    background: #1a1630; border-bottom: 1px solid #30363d;
+  }
+  .translate-bar.visible { display: flex; }
+  .translate-bar label { font-size: 13px; color: #8b949e; }
+  .translate-bar select {
+    padding: 6px 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117;
+    color: #e1e4e8; font-size: 13px; outline: none;
+  }
+  .translate-bar select:focus { border-color: #58a6ff; }
+  .btn-translate { background: #6e40c9; border-color: #6e40c9; color: #fff; }
+  .btn-translate:hover { background: #8b5cf6; }
+  .btn-translate:disabled { opacity: .4; cursor: default; }
+
+  .translate-row-btn {
+    opacity: 0; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer;
+    transition: all .15s; margin-left: 4px; font-weight: 500;
+  }
+  tr:hover .translate-row-btn { opacity: 1; }
+  .translate-row-btn:disabled { opacity: .3; cursor: default; }
+  .translate-row-google { border: 1px solid #3b82f6; background: #3b82f622; color: #60a5fa; }
+  .translate-row-google:hover { background: #3b82f644; color: #93c5fd; }
+  .translate-row-gemini { border: 1px solid #6e40c9; background: #6e40c922; color: #a371f7; }
+  .translate-row-gemini:hover { background: #6e40c944; color: #d4b5ff; }
+
+  .progress-bar {
+    height: 3px; background: #21262d; border-radius: 2px; overflow: hidden; flex: 1; max-width: 200px;
+  }
+  .progress-bar-fill { height: 100%; background: #8b5cf6; width: 0%; transition: width .3s; }
+  .progress-text { font-size: 12px; color: #a371f7; }
+
+  .col-check { width: 36px; text-align: center; }
+  .row-check { width: 15px; height: 15px; accent-color: #8b5cf6; cursor: pointer; }
+  .check-all { width: 15px; height: 15px; accent-color: #8b5cf6; cursor: pointer; }
+  tr.row-selected td { background: #1a1630; }
+
+  .selection-bar {
+    position: sticky; top: 0; z-index: 60; padding: 10px 32px; display: none; align-items: center; gap: 12px;
+    background: #1a1630; border-bottom: 1px solid #6e40c9;
+  }
+  .selection-bar.visible { display: flex; }
+  .selection-bar .sel-count { font-size: 13px; color: #d4b5ff; font-weight: 500; }
+  .selection-bar .btn-sel-clear { background: none; border: none; color: #8b949e; font-size: 12px; cursor: pointer; text-decoration: underline; }
+  .selection-bar .btn-sel-clear:hover { color: #e1e4e8; }
+
+  .tab-bar { display: flex; gap: 0; background: #161b22; border-bottom: 1px solid #30363d; padding: 0 32px; }
+  .tab { padding: 10px 24px; border: none; background: none; color: #8b949e; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; transition: all .15s; font-weight: 500; }
+  .tab:hover { color: #e1e4e8; }
+  .tab.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .mode-panel { display: none; }
+  .mode-panel.active { display: block; }
+
+  .cp-section { margin: 8px 32px; border: 1px solid #30363d; border-radius: 10px; background: #161b22; overflow: hidden; }
+  .cp-section-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: #1c2128; cursor: pointer; user-select: none; flex-wrap: wrap; }
+  .cp-section-header:hover { background: #21262d; }
+  .cp-section-arrow { font-size: 12px; color: #8b949e; transition: transform .2s; }
+  .cp-section.open .cp-section-arrow { transform: rotate(90deg); }
+  .cp-section-name { font-weight: 600; font-size: 14px; flex-shrink: 0; }
+  .cp-section-count { font-size: 12px; color: #8b949e; }
+  .cp-section-trans { padding: 4px 10px; border-radius: 6px; border: 1px solid #30363d; background: #0d1117; color: #e1e4e8; font-size: 13px; outline: none; min-width: 180px; }
+  .cp-section-trans:focus { border-color: #58a6ff; }
+  .cp-section-body { display: none; }
+  .cp-section.open .cp-section-body { display: block; }
+  .cp-item { padding: 12px 16px; border-top: 1px solid #21262d; }
+  .cp-item:hover { background: #1c212844; }
+  .cp-item-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .cp-item-key { font-weight: 600; color: #58a6ff; font-size: 13px; }
+  .cp-item-key-input { padding: 3px 8px; border-radius: 4px; border: 1px solid #30363d; background: #0d1117; color: #3fb950; font-size: 12px; outline: none; font-family: 'Cascadia Code', monospace; min-width: 200px; }
+  .cp-item-key-input:focus { border-color: #58a6ff; }
+  .cp-item-row { display: flex; gap: 8px; margin-bottom: 6px; font-size: 12px; align-items: flex-start; }
+  .cp-item-label { color: #8b949e; min-width: 75px; flex-shrink: 0; padding-top: 5px; font-size: 11px; font-weight: 600; }
+  .cp-item-orig { flex: 1; color: #8b949e; padding: 4px 8px; background: #0d1117; border-radius: 4px; font-family: 'Cascadia Code', monospace; font-size: 11px; white-space: pre-wrap; max-height: 80px; overflow-y: auto; line-height: 1.5; }
+  .cp-item-trans { flex: 1; padding: 4px 8px; border-radius: 4px; border: 1px solid #30363d; background: #0d1117; color: #e1e4e8; font-family: 'Cascadia Code', monospace; font-size: 11px; outline: none; resize: vertical; min-height: 28px; line-height: 1.5; }
+  .cp-item-trans:focus { border-color: #58a6ff; }
+  .cp-values-wrap { flex: 1; display: flex; flex-wrap: wrap; gap: 4px; }
+  .cp-value-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; font-size: 11px; border: 1px solid #30363d; background: #21262d; }
+  .cp-value-chip.skip { opacity: 0.5; border-style: dashed; }
+  .cp-value-chip .cp-val-input { border: none; background: none; color: #e1e4e8; font-size: 11px; outline: none; font-family: 'Cascadia Code', monospace; width: 100px; padding: 2px 0; }
+  .cp-value-chip .cp-val-orig { color: #6e7681; font-size: 10px; margin-right: 2px; }
+
+  .cp-toolbar { padding: 12px 32px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .cp-stats { padding: 4px 32px 12px; font-size: 13px; color: #8b949e; display: flex; gap: 16px; flex-wrap: wrap; }
+
+  .tag-skip { background: #484f5822; color: #6e7681; }
+  .tag-translatable { background: #58a6ff22; color: #58a6ff; }
+
+  .single-wrap { padding: 0 32px 40px; overflow-x: auto; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>번역 도구 Suite</h1>
+  <span class="badge">v4.0</span>
+  <span class="edit-count" id="edit-count"></span>
+  <button class="btn" id="btn-reset" onclick="resetCurrentMode()" style="display:none;margin-left:auto;">초기화</button>
+  <div class="header-actions" id="header-actions" style="display:none">
+    <button class="btn btn-warn" id="btn-undo-all" onclick="undoCurrentMode()">전체 되돌리기</button>
+    <button class="btn btn-primary" id="btn-save" onclick="saveCurrentMode()">저장</button>
+  </div>
+</div>
+
+<div class="tab-bar">
+  <button class="tab active" data-mode="compare" onclick="switchMode('compare')">비교 모드</button>
+  <button class="tab" data-mode="single" onclick="switchMode('single')">단일 JSON 번역</button>
+  <button class="tab" data-mode="content" onclick="switchMode('content')">Content.json 번역</button>
+</div>
+
+<div class="translate-bar" id="translate-bar">
+  <label>번역 엔진</label>
+  <select id="translate-engine" onchange="onEngineChange()">
+    <option value="google">Google (무료/기본)</option>
+    <option value="gemini">Gemini AI (자연스러움)</option>
+  </select>
+  <select id="gemini-tier" style="display:none;padding:6px 10px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#e1e4e8;font-size:13px;" onchange="onTierChange()">
+    <option value="free">무료 (느림/제한 있음)</option>
+    <option value="pro">유료 (빠름/제한 없음)</option>
+  </select>
+  <input type="password" id="gemini-api-key" placeholder="Gemini API 키 입력" style="display:none;width:220px;padding:6px 10px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#e1e4e8;font-size:13px;">
+  <label>원본 언어</label>
+  <select id="lang-source">
+    <option value="en">English</option>
+    <option value="ko">한국어</option>
+    <option value="ja">日本語</option>
+    <option value="zh-CN">中文(简体)</option>
+    <option value="zh-TW">中文(繁體)</option>
+    <option value="es">Español</option>
+    <option value="fr">Français</option>
+    <option value="de">Deutsch</option>
+    <option value="pt">Português</option>
+    <option value="ru">Русский</option>
+    <option value="auto">자동 감지</option>
+  </select>
+  <label>→ 번역 언어</label>
+  <select id="lang-target">
+    <option value="ko">한국어</option>
+    <option value="en">English</option>
+    <option value="ja">日本語</option>
+    <option value="zh-CN">中文(简体)</option>
+    <option value="zh-TW">中文(繁體)</option>
+    <option value="es">Español</option>
+    <option value="fr">Français</option>
+    <option value="de">Deutsch</option>
+    <option value="pt">Português</option>
+    <option value="ru">Русский</option>
+  </select>
+  <button class="btn" onclick="testGeminiApi()" style="background:#21262d;">API 테스트</button>
+  <span data-compare-only>
+    <button class="btn btn-translate" id="btn-translate-all" onclick="translateAll(false)">누락+빈 값 번역</button>
+    <button class="btn btn-translate" onclick="translateAll(true)" style="background:#9e6a03;border-color:#9e6a03;">전체 다시 번역</button>
+    <div class="progress-bar" id="translate-progress" style="display:none"><div class="progress-bar-fill" id="translate-progress-fill"></div></div>
+    <span class="progress-text" id="translate-progress-text"></span>
+  </span>
+</div>
+<div class="translate-bar" id="translate-style-bar" style="display:none;padding-top:0;">
+  <label>번역 스타일</label>
+  <input type="text" id="translate-style" placeholder="예: 스타듀밸리 게임, 친근하고 따뜻한 말투" style="flex:1;min-width:300px;padding:6px 10px;border-radius:6px;border:1px solid #30363d;background:#0d1117;color:#e1e4e8;font-size:13px;">
+</div>
+
+<div id="mode-compare" class="mode-panel active">
+<div class="drop-zone-wrap">
+  <div class="drop-zone" id="zone-base">
+    <input type="file" accept=".json" id="file-base">
+    <h3>원본 (default.json)</h3>
+    <p>파일을 드래그하거나 클릭해서 선택</p>
+    <div class="count" id="count-base"></div>
+  </div>
+  <div class="drop-zone" id="zone-target">
+    <input type="file" accept=".json" id="file-target">
+    <h3>번역본 (ko.json)</h3>
+    <p>파일을 드래그하거나 클릭해서 선택</p>
+    <div class="count" id="count-target"></div>
+  </div>
+</div>
+
+<div class="toolbar" id="toolbar" style="display:none">
+  <input type="text" id="search" placeholder="키 또는 값 검색...">
+  <button class="filter-btn active" data-filter="all">전체</button>
+  <button class="filter-btn" data-filter="missing">누락</button>
+  <button class="filter-btn" data-filter="extra">원본에 없음</button>
+  <button class="filter-btn" data-filter="renamed">키 변경 추정</button>
+  <button class="filter-btn" data-filter="empty">빈 값</button>
+  <button class="filter-btn" data-filter="edited">수정됨</button>
+  <button class="filter-btn" data-filter="untranslated">미번역 (영어)</button>
+  <button class="filter-btn" data-filter="match">일치</button>
+</div>
+
+<div class="stats" id="stats" style="display:none"></div>
+
+<div class="selection-bar" id="selection-bar">
+  <span class="sel-count" id="sel-count">0건 선택</span>
+  <button class="btn btn-translate" id="btn-translate-selected" onclick="translateSelected()">선택 항목 재번역</button>
+  <button class="btn-sel-clear" onclick="clearSelection()">선택 해제</button>
+  <div class="progress-bar" id="sel-translate-progress" style="display:none"><div class="progress-bar-fill" id="sel-translate-progress-fill"></div></div>
+  <span class="progress-text" id="sel-translate-progress-text"></span>
+</div>
+
+<div id="content">
+  <div class="empty-state" id="empty-state">
+    <h2>양쪽 파일을 모두 로드해 주세요</h2>
+    <p>주석이 포함된 JSON 파일도 지원됩니다</p>
+  </div>
+  <div class="table-wrap" id="table-wrap" style="display:none">
+    <table>
+      <thead>
+        <tr>
+          <th class="col-check"><input type="checkbox" class="check-all" id="check-all"></th>
+          <th class="col-status">상태</th>
+          <th class="col-key">키</th>
+          <th class="col-base">원본 값</th>
+          <th class="col-target">번역 값 (클릭하여 편집)</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+    <div id="load-sentinel" style="height:1px;"></div>
+    <div id="render-count" style="text-align:center;padding:12px;color:#8b949e;font-size:13px;"></div>
+  </div>
+</div>
+
+</div><!-- /mode-compare -->
+
+<div id="mode-single" class="mode-panel">
+  <div class="drop-zone-wrap">
+    <div class="drop-zone" id="zone-single">
+      <input type="file" accept=".json" id="file-single">
+      <h3>단일 JSON 파일</h3>
+      <p>키-값 JSON 파일을 드래그하거나 클릭해서 선택</p>
+      <div class="count" id="count-single"></div>
+    </div>
+  </div>
+  <div class="toolbar" id="toolbar-single" style="display:none">
+    <input type="text" id="search-single" placeholder="키 또는 값 검색...">
+    <button class="filter-btn active" data-sfilter="all">전체</button>
+    <button class="filter-btn" data-sfilter="translatable">번역 대상</button>
+    <button class="filter-btn" data-sfilter="skip">스킵</button>
+    <button class="filter-btn" data-sfilter="untranslated">미번역 (영어)</button>
+    <button class="filter-btn" data-sfilter="edited">수정됨</button>
+    <button class="btn btn-translate" onclick="sTranslateAll()">전체 번역</button>
+    <div class="progress-bar" id="single-progress" style="display:none"><div class="progress-bar-fill" id="single-progress-fill"></div></div>
+    <span class="progress-text" id="single-progress-text"></span>
+  </div>
+  <div class="cp-stats" id="stats-single" style="display:none"></div>
+  <div class="single-wrap" id="single-table-wrap" style="display:none">
+    <table class="single-table">
+      <thead><tr><th style="width:30%">키</th><th style="width:30%">원본 값</th><th style="width:30%">번역 값 (클릭하여 편집)</th><th style="width:10%">상태</th></tr></thead>
+      <tbody id="single-tbody"></tbody>
+    </table>
+  </div>
+  <div class="empty-state" id="empty-single"><h2>JSON 파일을 로드해 주세요</h2><p>키-값 형태의 단일 JSON 파일을 번역합니다. true/false 등은 자동 스킵됩니다.</p></div>
+</div>
+
+<div id="mode-content" class="mode-panel">
+  <div class="drop-zone-wrap">
+    <div class="drop-zone" id="zone-content">
+      <input type="file" accept=".json" id="file-content">
+      <h3>content.json</h3>
+      <p>Content Patcher content.json 파일</p>
+      <div class="count" id="count-content"></div>
+    </div>
+    <div class="drop-zone" id="zone-config">
+      <input type="file" accept=".json" id="file-config">
+      <h3>config.json (선택)</h3>
+      <p>함께 치환할 config.json 파일</p>
+      <div class="count" id="count-config"></div>
+    </div>
+  </div>
+  <div class="cp-toolbar" id="toolbar-content" style="display:none">
+    <input type="text" id="search-content" placeholder="키, 설명, 값 검색..." style="flex:1;min-width:200px;padding:8px 14px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e1e4e8;font-size:14px;outline:none;">
+    <button class="btn btn-translate" onclick="cpTranslateAll()">전체 번역</button>
+    <button class="btn btn-translate" onclick="cpTranslateDescOnly()" style="background:#3b82f6;border-color:#3b82f6;">Description만 번역</button>
+    <div class="progress-bar" id="cp-progress" style="display:none"><div class="progress-bar-fill" id="cp-progress-fill"></div></div>
+    <span class="progress-text" id="cp-progress-text"></span>
+  </div>
+  <div class="cp-stats" id="stats-content" style="display:none"></div>
+  <div id="cp-sections"></div>
+  <div class="empty-state" id="empty-content"><h2>content.json 파일을 로드해 주세요</h2><p>ConfigSchema의 키, Description, AllowValues, Section을 번역합니다.<br>저장 시 When 조건문과 config.json이 자동으로 치환됩니다.</p></div>
+</div>
+
+<div class="unsaved-bar" id="unsaved-bar">
+  <span id="unsaved-text"></span>
+  <div style="margin-left:auto;display:flex;gap:8px;">
+    <button class="btn btn-warn" onclick="undoCurrentMode()">전체 되돌리기</button>
+    <button class="btn btn-primary" onclick="saveCurrentMode()">저장</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const state = { base: null, target: null, targetRaw: null };
+const edits = new Map();
+const deletedKeys = new Set();
+let allRows = [];
+let targetFileName = 'ko.json';
+let targetFileHandle = null;
+const addedAsNewKeys = new Set();
+const selectedKeys = new Set();
+let filteredRows = [];
+let renderedCount = 0;
+const PAGE_SIZE = 100;
+const KOREAN_RE = /[\uAC00-\uD7AF\u3130-\u318F\u1100-\u11FF]/;
+function hasKorean(s) { return s && KOREAN_RE.test(String(s)); }
+function isUntranslated(val) {
+  if (val == null) return false;
+  const s = String(val).trim();
+  if (!s) return false;
+  if (/^[\d\s\W]+$/.test(s)) return false;
+  return !hasKorean(s);
+}
+
+function debounce(fn, delay) {
+  let timer;
+  return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); };
+}
+
+function parseJsonc(text) {
+  let result = '';
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '"') {
+      result += '"';
+      i++;
+      while (i < text.length && text[i] !== '"') {
+        if (text[i] === '\\') { result += text[i] + (text[i+1] || ''); i += 2; }
+        else {
+          const code = text.charCodeAt(i);
+          if (code < 0x20) {
+            if (code === 0x0a) result += '\\n';
+            else if (code === 0x0d) result += '\\r';
+            else if (code === 0x09) result += '\\t';
+            else result += '\\u' + code.toString(16).padStart(4, '0');
+          } else { result += text[i]; }
+          i++;
+        }
+      }
+      if (i < text.length) { result += '"'; i++; }
+    } else if (text[i] === '/' && text[i+1] === '/') {
+      while (i < text.length && text[i] !== '\n') i++;
+    } else if (text[i] === '/' && text[i+1] === '*') {
+      i += 2;
+      while (i < text.length && !(text[i] === '*' && text[i+1] === '/')) i++;
+      i += 2;
+    } else {
+      result += text[i]; i++;
+    }
+  }
+  const cleaned = result.replace(/,\s*([}\]])/g, '$1');
+  return JSON.parse(cleaned);
+}
+
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2500);
+}
+
+function updateEditCount() {
+  if (typeof updateGlobalUI === 'function') { updateGlobalUI(); return; }
+  const n = edits.size + deletedKeys.size;
+  const el = document.getElementById('edit-count');
+  const bar = document.getElementById('unsaved-bar');
+  const actions = document.getElementById('header-actions');
+  if (n > 0) {
+    el.textContent = `${n}건 수정됨 (미저장)`;
+    bar.classList.add('visible');
+    document.getElementById('unsaved-text').textContent = `${n}건의 변경사항이 아직 저장되지 않았습니다`;
+    actions.style.display = 'flex';
+  } else {
+    el.textContent = '';
+    bar.classList.remove('visible');
+    actions.style.display = 'none';
+  }
+}
+
+function resetAll() {
+  if ((edits.size > 0 || deletedKeys.size > 0) && !confirm('미저장 변경사항이 있습니다. 초기화하시겠습니까?')) return;
+  state.base = null;
+  state.target = null;
+  state.targetRaw = null;
+  edits.clear();
+  deletedKeys.clear();
+  addedAsNewKeys.clear();
+  selectedKeys.clear();
+  allRows = [];
+  targetFileName = 'ko.json';
+  targetFileHandle = null;
+  document.getElementById('selection-bar').classList.remove('visible');
+  document.getElementById('btn-reset').style.display = 'none';
+  document.getElementById('zone-base').classList.remove('loaded');
+  document.getElementById('zone-target').classList.remove('loaded');
+  document.getElementById('count-base').textContent = '';
+  document.getElementById('count-target').textContent = '';
+  document.getElementById('toolbar').style.display = 'none';
+  document.getElementById('translate-bar').classList.remove('visible');
+  document.getElementById('stats').style.display = 'none';
+  document.getElementById('table-wrap').style.display = 'none';
+  document.getElementById('empty-state').style.display = '';
+  document.getElementById('tbody').innerHTML = '';
+  updateEditCount();
+  toast('초기화 완료');
+}
+
+function undoAll() {
+  if (!confirm('모든 수정사항을 되돌리시겠습니까?')) return;
+  edits.clear();
+  deletedKeys.clear();
+  addedAsNewKeys.clear();
+  selectedKeys.clear();
+  updateEditCount();
+  renderTable();
+  toast('모든 수정사항이 되돌려졌습니다');
+}
+
+function loadFile(file, which, fileHandle) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = parseJsonc(e.target.result);
+      state[which] = data;
+      if (which === 'target') {
+        state.targetRaw = e.target.result;
+        targetFileName = file.name;
+        targetFileHandle = fileHandle || null;
+      }
+      const zone = document.getElementById('zone-' + which);
+      zone.classList.add('loaded');
+      const mode = which === 'target' && targetFileHandle ? '직접 저장 가능' : '다운로드 저장';
+      document.getElementById('count-' + which).textContent = `${Object.keys(data).length}개 키 로드됨 (${file.name}${which === 'target' ? ' · ' + mode : ''})`;
+      edits.clear();
+      deletedKeys.clear();
+      addedAsNewKeys.clear();
+      updateEditCount();
+      if (state.base && state.target) runCompare();
+    } catch (err) {
+      alert('JSON 파싱 오류: ' + err.message);
+    }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+['base', 'target'].forEach(which => {
+  const zone = document.getElementById('zone-' + which);
+  const input = document.getElementById('file-' + which);
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', async e => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    if (!e.dataTransfer.items.length) return;
+    const item = e.dataTransfer.items[0];
+    const file = item.getAsFile();
+    let handle = null;
+    if (which === 'target' && item.getAsFileSystemHandle) {
+      try { handle = await item.getAsFileSystemHandle(); } catch {}
+    }
+    if (file) loadFile(file, which, handle);
+  });
+  if (which === 'target' && window.showOpenFilePicker) {
+    input.addEventListener('click', async e => {
+      e.preventDefault();
+      try {
+        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }] });
+        const file = await handle.getFile();
+        loadFile(file, which, handle);
+      } catch {}
+    });
+  } else {
+    input.addEventListener('change', () => { if (input.files.length) loadFile(input.files[0], which); });
+  }
+});
+
+function similarity(a, b) {
+  if (a === b) return 1;
+  const na = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const nb = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (na === nb) return 0.98;
+  const sa = a.split('.'), sb = b.split('.');
+  const maxLen = Math.max(sa.length, sb.length);
+  let mc = 0;
+  for (let i = 0; i < Math.min(sa.length, sb.length); i++) {
+    if (sa[i].toLowerCase() === sb[i].toLowerCase()) mc++;
+    else if (sa[i].toLowerCase().includes(sb[i].toLowerCase()) || sb[i].toLowerCase().includes(sa[i].toLowerCase())) mc += 0.7;
+  }
+  const segScore = mc / maxLen;
+  if (segScore >= 0.55) return segScore;
+  const maxL = Math.max(a.length, b.length);
+  if (maxL === 0) return 1;
+  const dist = levenshtein(a, b);
+  return Math.max(segScore, 1 - dist / maxL);
+}
+
+function levenshtein(a, b) {
+  if (a.length > 200 || b.length > 200)
+    return Math.abs(a.length - b.length) + (a.includes(b) || b.includes(a) ? 0 : Math.min(a.length, b.length) * 0.3);
+  const m = a.length, n = b.length;
+  if (m === 0) return n;
+  if (n === 0) return m;
+  let prev = new Uint16Array(n + 1);
+  let curr = new Uint16Array(n + 1);
+  for (let j = 0; j <= n; j++) prev[j] = j;
+  for (let i = 1; i <= m; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= n; j++)
+      curr[j] = Math.min(prev[j] + 1, curr[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    [prev, curr] = [curr, prev];
+  }
+  return prev[n];
+}
+
+function keyDiff(oldKey, newKey) {
+  const oP = oldKey.split('.'), nP = newKey.split('.');
+  const len = Math.max(oP.length, nP.length);
+  let html = '';
+  for (let i = 0; i < len; i++) {
+    if (i > 0) html += '<span style="color:#484f58">.</span>';
+    const o = oP[i] || '', n = nP[i] || '';
+    if (o === n) html += esc(n);
+    else if (!o) html += `<span class="diff-add">${esc(n)}</span>`;
+    else if (!n) html += `<span class="diff-del">${esc(o)}</span>`;
+    else html += `<span class="diff-del">${esc(o)}</span><span class="diff-add">${esc(n)}</span>`;
+  }
+  return html;
+}
+
+function getEffectiveTarget(row) {
+  const editKey = row.status === 'renamed' ? 'renamed:' + row.key : row.key;
+  if (edits.has(editKey)) return edits.get(editKey);
+  return row.target;
+}
+
+function runCompare() {
+  const baseKeys = new Set(Object.keys(state.base));
+  const targetKeys = new Set(Object.keys(state.target));
+  allRows = [];
+  const missingKeys = [], extraKeys = [];
+
+  for (const key of baseKeys) {
+    const bv = state.base[key];
+    if (bv === '' || bv == null) continue;
+    if (targetKeys.has(key)) {
+      const tv = state.target[key];
+      allRows.push({ key, status: (tv === '' || tv == null) ? 'empty' : 'match', base: bv, target: tv ?? '' });
+    } else {
+      missingKeys.push(key);
+    }
+  }
+  for (const key of targetKeys) {
+    if (!baseKeys.has(key)) extraKeys.push(key);
+  }
+
+  const usedExtra = new Set(), renamedPairs = [];
+  const extraSet = new Set(extraKeys);
+  for (const mk of missingKeys) {
+    if (extraSet.has(mk)) {
+      usedExtra.add(mk); extraSet.delete(mk);
+      renamedPairs.push({ baseKey: mk, targetKey: mk, sim: 1 });
+      continue;
+    }
+    let bestKey = null, bestSim = 0;
+    for (const ek of extraSet) {
+      if (usedExtra.has(ek)) continue;
+      const s = similarity(mk, ek);
+      if (s > bestSim) { bestSim = s; bestKey = ek; }
+      if (s >= 0.98) break;
+    }
+    if (bestSim >= 0.55 && bestKey) { usedExtra.add(bestKey); extraSet.delete(bestKey); renamedPairs.push({ baseKey: mk, targetKey: bestKey, sim: bestSim }); }
+  }
+  const renamedBase = new Set(renamedPairs.map(p => p.baseKey));
+  const renamedTarget = new Set(renamedPairs.map(p => p.targetKey));
+
+  for (const { baseKey, targetKey, sim } of renamedPairs)
+    allRows.push({ key: baseKey, targetKey, status: 'renamed', base: state.base[baseKey], target: state.target[targetKey], sim: Math.round(sim * 100) });
+  for (const key of missingKeys) if (!renamedBase.has(key)) allRows.push({ key, status: 'missing', base: state.base[key], target: '' });
+  for (const key of extraKeys) if (!renamedTarget.has(key)) allRows.push({ key, status: 'extra', base: '', target: state.target[key] });
+
+  const order = { renamed: 0, missing: 1, extra: 2, empty: 3, match: 4 };
+  allRows.sort((a, b) => order[a.status] - order[b.status]);
+
+  document.getElementById('btn-reset').style.display = '';
+  document.getElementById('toolbar').style.display = 'flex';
+  document.getElementById('translate-bar').classList.add('visible');
+  document.getElementById('stats').style.display = 'flex';
+  updateStats();
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('table-wrap').style.display = 'block';
+  renderTable();
+}
+
+function updateStats() {
+  let cMatch = 0, cMissing = 0, cExtra = 0, cEmpty = 0, cRenamed = 0, cUntranslated = 0;
+  for (const r of allRows) {
+    if (r.status === 'match') cMatch++;
+    else if (r.status === 'missing') cMissing++;
+    else if (r.status === 'extra') cExtra++;
+    else if (r.status === 'empty') cEmpty++;
+    else if (r.status === 'renamed') cRenamed++;
+    const tv = getEffectiveTarget(r);
+    if (isUntranslated(tv)) cUntranslated++;
+  }
+  document.getElementById('stats').innerHTML = `
+    <span><span class="dot dot-match"></span> 일치: ${cMatch}</span>
+    <span><span class="dot dot-renamed"></span> 키 변경 추정: ${cRenamed}</span>
+    <span><span class="dot dot-missing"></span> 번역 누락: ${cMissing}</span>
+    <span><span class="dot dot-extra"></span> 원본에 없음: ${cExtra}</span>
+    <span><span class="dot dot-empty"></span> 빈 값: ${cEmpty}</span>
+    <span><span class="dot dot-untranslated"></span> 미번역: ${cUntranslated}</span>
+    ${edits.size + deletedKeys.size > 0 ? `<span><span class="dot dot-edited"></span> 수정됨: ${edits.size + deletedKeys.size}</span>` : ''}
+  `;
+}
+
+function isEdited(row) {
+  const editKey = row.status === 'renamed' ? 'renamed:' + row.key : row.key;
+  return edits.has(editKey) || deletedKeys.has(row.key) || (row.targetKey && deletedKeys.has(row.targetKey)) || addedAsNewKeys.has(row.key);
+}
+
+function renderTable() {
+  const filter = document.querySelector('.filter-btn.active').dataset.filter;
+  const search = document.getElementById('search').value.toLowerCase();
+
+  let filtered = allRows;
+  if (filter === 'edited') filtered = filtered.filter(r => isEdited(r));
+  else if (filter === 'untranslated') filtered = filtered.filter(r => {
+    const val = getEffectiveTarget(r);
+    return isUntranslated(val);
+  });
+  else if (filter !== 'all') filtered = filtered.filter(r => r.status === filter);
+  if (search) filtered = filtered.filter(r =>
+    r.key.toLowerCase().includes(search) ||
+    (r.targetKey || '').toLowerCase().includes(search) ||
+    String(r.base).toLowerCase().includes(search) ||
+    String(r.target).toLowerCase().includes(search)
+  );
+
+  filteredRows = filtered;
+  renderedCount = 0;
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  renderNextChunk();
+  updateSelectionBar();
+}
+
+function createRowElement(row) {
+  const tr = document.createElement('tr');
+  if (isEdited(row)) tr.classList.add('row-edited');
+  if (selectedKeys.has(row.key)) tr.classList.add('row-selected');
+  const tagLabels = { missing: '누락', extra: '원본에 없음', match: '일치', empty: '빈 값', renamed: '키 변경' };
+  const tag = tagLabels[row.status];
+  const tagClass = 'tag-' + row.status;
+  const editedBadge = isEdited(row) ? '<span class="tag tag-edited">수정됨</span>' : '';
+  const targetVal = getEffectiveTarget(row);
+  const canCheck = row.status !== 'extra' && String(row.base).trim();
+  const checkTd = canCheck
+    ? `<td class="col-check"><input type="checkbox" class="row-check" data-check-key="${escAttr(row.key)}" ${selectedKeys.has(row.key) ? 'checked' : ''}></td>`
+    : '<td class="col-check"></td>';
+
+  if (row.status === 'renamed') {
+    const diffHtml = keyDiff(row.targetKey, row.key);
+    const editKey = 'renamed:' + row.key;
+    tr.innerHTML = `
+      ${checkTd}
+      <td>
+        <span class="tag ${tagClass}">${tag}</span><span class="similarity">${row.sim}%</span>${editedBadge}
+      </td>
+      <td>
+        <div style="margin-bottom:4px">
+          <span style="color:#8b949e;font-size:11px">원본:</span> <span class="rename-new">${esc(row.key)}</span>
+          <button class="copy-btn" data-copy="${escAttr(row.key)}">복사</button>
+        </div>
+        <div style="margin-bottom:4px">
+          <span style="color:#8b949e;font-size:11px">번역:</span> <span class="rename-old">${esc(row.targetKey)}</span>
+        </div>
+        <div style="font-size:11px;color:#6e7681;">차이: ${diffHtml}</div>
+        <button class="action-btn action-btn-apply" data-apply-rename="${escAttr(row.key)}|${escAttr(row.targetKey)}">키 이름 일괄 적용</button>
+        <button class="action-btn ${addedAsNewKeys.has(row.key) ? 'action-btn-del' : ''}" data-add-as-new="${escAttr(row.key)}" style="${addedAsNewKeys.has(row.key) ? '' : 'border-color:#58a6ff;color:#58a6ff;'} opacity:1;">${addedAsNewKeys.has(row.key) ? '추가 취소' : '새 키로 추가'}</button>
+      </td>
+      <td class="val-cell">${esc(String(row.base))}</td>
+      <td class="val-cell editable" data-edit-key="${escAttr(editKey)}" data-original="${escAttr(row.target)}">${esc(String(targetVal))}</td>
+    `;
+  } else if (row.status === 'extra') {
+    tr.innerHTML = `
+      ${checkTd}
+      <td><span class="tag ${tagClass}">${tag}</span>${editedBadge}</td>
+      <td>${esc(row.key)}<button class="action-btn action-btn-del" data-delete-key="${escAttr(row.key)}">삭제</button></td>
+      <td class="val-cell">${esc(String(row.base))}</td>
+      <td class="val-cell">${esc(String(targetVal))}</td>
+    `;
+  } else {
+    const canTranslate = (row.status === 'missing' || row.status === 'empty' || row.status === 'match') && String(row.base).trim();
+    const isGeminiEngine = document.getElementById('translate-engine').value === 'gemini';
+    let translateBtn = '';
+    if (canTranslate) {
+      translateBtn = `<button class="translate-row-btn translate-row-google" data-translate-key="${escAttr(row.key)}" data-engine="google">Google</button>`;
+      if (isGeminiEngine) translateBtn += `<button class="translate-row-btn translate-row-gemini" data-translate-key="${escAttr(row.key)}" data-engine="gemini">Gemini</button>`;
+    }
+    tr.innerHTML = `
+      ${checkTd}
+      <td><span class="tag ${tagClass}">${tag}</span>${editedBadge}</td>
+      <td>${esc(row.key)}<button class="copy-btn" data-copy="${escAttr(row.key)}">복사</button>${translateBtn}</td>
+      <td class="val-cell">${esc(String(row.base))}</td>
+      <td class="val-cell editable" data-edit-key="${escAttr(row.key)}" data-original="${escAttr(row.target)}">${esc(String(targetVal))}</td>
+    `;
+  }
+  return tr;
+}
+
+function renderNextChunk() {
+  if (renderedCount >= filteredRows.length) return;
+  const tbody = document.getElementById('tbody');
+  const frag = document.createDocumentFragment();
+  const end = Math.min(renderedCount + PAGE_SIZE, filteredRows.length);
+  for (let i = renderedCount; i < end; i++) {
+    frag.appendChild(createRowElement(filteredRows[i]));
+  }
+  tbody.appendChild(frag);
+  renderedCount = end;
+  const countEl = document.getElementById('render-count');
+  if (renderedCount < filteredRows.length)
+    countEl.textContent = `${renderedCount} / ${filteredRows.length}건 표시 중 (스크롤하면 더 불러옵니다)`;
+  else
+    countEl.textContent = filteredRows.length > 0 ? `전체 ${filteredRows.length}건 표시 완료` : '';
+}
+
+function updateSelectionBar() {
+  const bar = document.getElementById('selection-bar');
+  const count = selectedKeys.size;
+  if (count > 0) {
+    bar.classList.add('visible');
+    document.getElementById('sel-count').textContent = `${count}건 선택`;
+  } else {
+    bar.classList.remove('visible');
+  }
+  const checkAll = document.getElementById('check-all');
+  const visibleChecks = document.querySelectorAll('.row-check');
+  const total = visibleChecks.length;
+  if (total > 0) {
+    let checked = 0;
+    for (let i = 0; i < total; i++) if (visibleChecks[i].checked) checked++;
+    checkAll.checked = checked === total;
+    checkAll.indeterminate = checked > 0 && checked < total;
+  }
+}
+
+function clearSelection() {
+  selectedKeys.clear();
+  renderTable();
+}
+
+document.getElementById('check-all').addEventListener('change', e => {
+  const checks = document.querySelectorAll('.row-check');
+  checks.forEach(cb => {
+    const key = cb.dataset.checkKey;
+    if (e.target.checked) selectedKeys.add(key);
+    else selectedKeys.delete(key);
+    cb.checked = e.target.checked;
+  });
+  document.querySelectorAll('#tbody tr').forEach(tr => {
+    tr.classList.toggle('row-selected', e.target.checked && tr.querySelector('.row-check'));
+  });
+  updateSelectionBar();
+});
+
+document.getElementById('tbody').addEventListener('change', e => {
+  if (e.target.classList.contains('row-check')) {
+    const key = e.target.dataset.checkKey;
+    if (e.target.checked) selectedKeys.add(key);
+    else selectedKeys.delete(key);
+    e.target.closest('tr').classList.toggle('row-selected', e.target.checked);
+    updateSelectionBar();
+  }
+});
+
+async function translateSelected() {
+  if (translating) return;
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  const targets = allRows.filter(r => selectedKeys.has(r.key) && String(r.base).trim());
+  if (targets.length === 0) { toast('선택된 항목이 없습니다'); return; }
+  if (!confirm(`선택한 ${targets.length}건을 재번역하시겠습니까?`)) return;
+
+  translating = true;
+  const btn = document.getElementById('btn-translate-selected');
+  const progress = document.getElementById('sel-translate-progress');
+  const fill = document.getElementById('sel-translate-progress-fill');
+  const pText = document.getElementById('sel-translate-progress-text');
+  btn.disabled = true;
+  progress.style.display = 'block';
+
+  let done = 0, failed = 0;
+  const startTime = Date.now();
+  const isGemini = document.getElementById('translate-engine').value === 'gemini';
+  const tier = isGemini ? getGeminiTier() : null;
+  const BATCH = isGemini ? tier.batchSize : 15;
+  const BASE_DELAY = isGemini ? tier.batchDelay : 80;
+
+  const updateSelProgress = () => {
+    const total = done + failed;
+    fill.style.width = (total / targets.length * 100) + '%';
+    const elapsed = Date.now() - startTime;
+    const eta = total > 0 ? (elapsed / total) * (targets.length - total) : 0;
+    pText.textContent = `${total} / ${targets.length} (${formatTime(elapsed)}${eta > 0 ? ` · ~${formatTime(eta)}` : ''})`;
+  };
+
+  try {
+    if (isGemini) {
+      const texts = targets.map(row => String(row.base));
+      const translations = await geminiBatchTranslate(texts, sl, tl, (ok, fail) => {
+        done += ok; failed += fail;
+        updateSelProgress();
+      });
+      for (let j = 0; j < targets.length; j++) {
+        const editKey = targets[j].status === 'renamed' ? 'renamed:' + targets[j].key : targets[j].key;
+        if (translations[j]) edits.set(editKey, translations[j]);
+      }
+    } else {
+      let googleDelay = 300;
+      for (let i = 0; i < targets.length; i += 5) {
+        const batch = targets.slice(i, i + 5);
+        const results = await Promise.allSettled(
+          batch.map(row => googleTranslateWithRetry(String(row.base), sl, tl).then(t => ({ row, translated: t })))
+        );
+        let batchFailed = 0;
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            const { row, translated } = r.value;
+            edits.set(row.status === 'renamed' ? 'renamed:' + row.key : row.key, translated);
+            done++;
+          } else { failed++; batchFailed++; }
+        }
+        if (batchFailed > 0) googleDelay = Math.min(googleDelay * 2, 10000);
+        else googleDelay = Math.max(googleDelay * 0.9, 300);
+        updateSelProgress();
+        if (i + 5 < targets.length) await new Promise(r => setTimeout(r, googleDelay));
+      }
+    }
+  } catch (err) {
+    toast(`오류: ${err.message}`);
+  }
+
+  selectedKeys.clear();
+  updateEditCount(); updateStats(); renderTable();
+  btn.disabled = false;
+  translating = false;
+  setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0%'; pText.textContent = ''; }, 3000);
+  toast(`선택 번역 완료: ${done}건 성공${failed > 0 ? `, ${failed}건 실패` : ''}`);
+}
+
+document.getElementById('tbody').addEventListener('click', e => {
+  const copyBtn = e.target.closest('[data-copy]');
+  if (copyBtn) { navigator.clipboard.writeText(copyBtn.dataset.copy); toast('클립보드에 복사됨'); return; }
+
+  const delBtn = e.target.closest('[data-delete-key]');
+  if (delBtn) {
+    const key = delBtn.dataset.deleteKey;
+    if (deletedKeys.has(key)) { deletedKeys.delete(key); toast('삭제 취소됨'); }
+    else { deletedKeys.add(key); toast(`"${key}" 삭제 예정 (저장 시 반영)`); }
+    updateEditCount(); updateStats(); renderTable();
+    return;
+  }
+
+  const translateBtn = e.target.closest('[data-translate-key]');
+  if (translateBtn) {
+    const key = translateBtn.dataset.translateKey;
+    const engine = translateBtn.dataset.engine;
+    const row = allRows.find(r => r.key === key);
+    if (row) {
+      translateBtn.disabled = true;
+      translateBtn.textContent = '...';
+      translateRow(row, engine);
+    }
+    return;
+  }
+
+  const addNewBtn = e.target.closest('[data-add-as-new]');
+  if (addNewBtn) {
+    const newKey = addNewBtn.dataset.addAsNew;
+    if (addedAsNewKeys.has(newKey)) {
+      addedAsNewKeys.delete(newKey);
+      edits.delete(newKey);
+      updateEditCount(); updateStats(); renderTable();
+      toast(`"${newKey}" 추가 취소됨`);
+    } else {
+      const row = allRows.find(r => r.key === newKey && r.status === 'renamed');
+      const val = row ? (edits.has('renamed:' + newKey) ? edits.get('renamed:' + newKey) : row.target) : '';
+      edits.set(newKey, val);
+      addedAsNewKeys.add(newKey);
+      updateEditCount(); updateStats(); renderTable();
+      toast(`"${newKey}" 새 키로 추가 예정 (기존 키 유지)`);
+    }
+    return;
+  }
+
+  const applyBtn = e.target.closest('[data-apply-rename]');
+  if (applyBtn) {
+    const [newKey, oldKey] = applyBtn.dataset.applyRename.split('|');
+    const editKey = 'renamed:' + newKey;
+    const existingVal = edits.has(editKey) ? edits.get(editKey) : state.target[oldKey] || '';
+    edits.set(editKey, existingVal);
+    deletedKeys.add(oldKey);
+    updateEditCount(); updateStats(); renderTable();
+    toast(`"${oldKey}" → "${newKey}" 적용 예정`);
+    return;
+  }
+
+  const cell = e.target.closest('.editable');
+  if (!cell || cell.querySelector('.edit-area')) return;
+  const editKey = cell.dataset.editKey;
+  const currentVal = edits.has(editKey) ? edits.get(editKey) : cell.dataset.original;
+
+  const ta = document.createElement('textarea');
+  ta.className = 'edit-area';
+  ta.value = currentVal;
+  const acts = document.createElement('div');
+  acts.className = 'edit-actions';
+  acts.innerHTML = '<button class="edit-save">저장</button><button class="edit-cancel">취소</button>';
+  cell.textContent = '';
+  cell.appendChild(ta);
+  cell.appendChild(acts);
+  ta.focus();
+
+  const adjustHeight = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  ta.addEventListener('input', adjustHeight);
+  adjustHeight();
+
+  acts.querySelector('.edit-save').addEventListener('click', () => {
+    const newVal = ta.value;
+    if (newVal !== cell.dataset.original) {
+      edits.set(editKey, newVal);
+    } else {
+      edits.delete(editKey);
+    }
+    updateEditCount(); updateStats(); renderTable();
+    toast('수정 완료');
+  });
+  acts.querySelector('.edit-cancel').addEventListener('click', () => renderTable());
+
+  ta.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape') { renderTable(); }
+    if (ev.key === 'Enter' && ev.ctrlKey) { acts.querySelector('.edit-save').click(); }
+  });
+});
+
+async function saveJson() {
+  const output = {};
+
+  for (const key of Object.keys(state.target)) {
+    if (deletedKeys.has(key)) continue;
+    output[key] = edits.has(key) ? edits.get(key) : state.target[key];
+  }
+
+  for (const [editKey, val] of edits) {
+    if (editKey.startsWith('renamed:')) {
+      const newKey = editKey.slice(8);
+      output[newKey] = val;
+    } else if (!(editKey in state.target)) {
+      output[editKey] = val;
+    }
+  }
+
+  for (const key of Object.keys(state.base)) {
+    if (edits.has(key) && !(key in state.target)) {
+      output[key] = edits.get(key);
+    }
+  }
+
+  const jsonStr = JSON.stringify(output, null, 2);
+  let saved = false;
+
+  if (targetFileHandle) {
+    try {
+      const writable = await targetFileHandle.createWritable();
+      await writable.write(jsonStr);
+      await writable.close();
+      toast(`${targetFileName} 파일에 직접 저장 완료!`);
+      saved = true;
+    } catch (err) {
+      console.warn('직접 저장 실패, 다운로드로 전환:', err);
+    }
+  }
+
+  if (!saved) {
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = targetFileName;
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast(`${targetFileName} 다운로드 완료!`);
+  }
+
+  state.target = output;
+  edits.clear();
+  deletedKeys.clear();
+  addedAsNewKeys.clear();
+  updateEditCount();
+  runCompare();
+}
+
+const LANG_NAMES = {
+  'en': 'English', 'ko': '한국어', 'ja': '일본어', 'zh-CN': '중국어(간체)',
+  'zh-TW': '중국어(번체)', 'es': '스페인어', 'fr': '프랑스어',
+  'de': '독일어', 'pt': '포르투갈어', 'ru': '러시아어', 'auto': '원본 언어'
+};
+
+const GEMINI_TIERS = {
+  free: { 
+    label: '무료', 
+    models: ['gemini-2.5-flash'], 
+    batchSize: 50,
+    batchDelay: 4000,
+    retries: 3 
+  },
+  pro: { 
+    label: '유료', 
+    models: ['gemini-2.5-flash'], 
+    batchSize: 200,
+    batchDelay: 50,
+    retries: 3
+  },
+};
+
+function getGeminiTier() {
+  return GEMINI_TIERS[document.getElementById('gemini-tier').value] || GEMINI_TIERS.free;
+}
+
+function onEngineChange() {
+  const engine = document.getElementById('translate-engine').value;
+  const isGemini = engine === 'gemini';
+  document.getElementById('gemini-api-key').style.display = isGemini ? '' : 'none';
+  document.getElementById('gemini-tier').style.display = isGemini ? '' : 'none';
+  document.getElementById('translate-style-bar').style.display = isGemini ? 'flex' : 'none';
+  if (isGemini) {
+    document.getElementById('gemini-api-key').value = localStorage.getItem('gemini-api-key') || '';
+    document.getElementById('gemini-tier').value = localStorage.getItem('gemini-tier') || 'free';
+    document.getElementById('translate-style').value = localStorage.getItem('translate-style') || '';
+  }
+  localStorage.setItem('translate-engine', engine);
+}
+
+function onTierChange() {
+  localStorage.setItem('gemini-tier', document.getElementById('gemini-tier').value);
+}
+
+async function testGeminiApi() {
+  const apiKey = document.getElementById('gemini-api-key').value.trim();
+  if (!apiKey) { alert('API 키를 입력하세요'); return; }
+  const testModels = [
+    'gemini-2.0-flash',
+    'gemini-2.0-flash-lite',
+    'gemini-1.5-flash',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-preview-05-20',
+    'gemini-3-flash-preview',
+  ];
+  toast('API 테스트 중... 잠시 기다려주세요');
+  let report = '';
+  const body = JSON.stringify({ contents: [{ parts: [{ text: 'Say hi in Korean. One word only.' }] }] });
+  const tests = testModels.map(async (model) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const t0 = Date.now();
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, signal: controller.signal });
+      clearTimeout(timer);
+      const ms = Date.now() - t0;
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return `❌ ${model}: HTTP ${res.status} (${ms}ms)\n   ${(err?.error?.message || '').slice(0, 80)}`;
+      }
+      const data = await res.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '(빈 응답)';
+      return `✅ ${model}: "${text.trim()}" (${ms}ms)`;
+    } catch (err) {
+      const ms = Date.now() - t0;
+      if (err.name === 'AbortError') return `⏰ ${model}: 타임아웃 (${ms}ms)`;
+      return `❌ ${model}: ${err.message} (${ms}ms)`;
+    }
+  });
+  const results = await Promise.all(tests);
+  alert('=== Gemini API 테스트 ===\n(모든 모델 동시 테스트)\n\n' + results.join('\n\n'));
+}
+
+function fetchWithTimeout(url, options, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const { signal: externalSignal, ...restOptions } = options || {};
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timer);
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+  }
+  return fetch(url, { ...restOptions, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+async function geminiCall(prompt, apiKey, modelName, signal) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  let res;
+  try {
+    res = await fetchWithTimeout(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.1 },
+        safetySettings: [
+          { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
+          { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+        ]
+      }),
+      signal
+    }, 60000);
+  } catch (fetchErr) {
+    console.error('[Gemini] fetch 실패:', fetchErr.message);
+    throw fetchErr;
+  }
+  if (res.status === 429) {
+    console.warn('[Gemini] 429 Rate limit');
+    throw Object.assign(new Error('429'), { is429: true });
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    const msg = err?.error?.message || `HTTP ${res.status}`;
+    console.error('[Gemini] API 오류:', res.status, msg);
+    throw new Error(msg);
+  }
+  const data = await res.json();
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    const reason = data.promptFeedback?.blockReason || JSON.stringify(data).slice(0, 200);
+    console.error('[Gemini] 빈 candidates:', reason);
+    throw new Error(`Gemini 응답 없음: ${reason}`);
+  }
+  if (candidate.finishReason && candidate.finishReason !== 'STOP' && candidate.finishReason !== 'MAX_TOKENS') {
+    console.error('[Gemini] finishReason:', candidate.finishReason);
+    throw new Error(`Gemini 차단: ${candidate.finishReason}`);
+  }
+  const text = candidate.content?.parts?.[0]?.text;
+  if (!text) {
+    console.error('[Gemini] 텍스트 없음. candidate:', JSON.stringify(candidate).slice(0, 300));
+    throw new Error('빈 응답 (텍스트 없음)');
+  }
+  return text.trim();
+}
+
+async function googleTranslateWithRetry(text, sl, tl, maxRetries = 3) {
+  for (let retry = 0; retry <= maxRetries; retry++) {
+    try {
+      const res = await fetchWithTimeout(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`,
+        {}, 15000
+      );
+      if (res.status === 429 || res.status === 403) {
+        if (retry < maxRetries) {
+          await new Promise(r => setTimeout(r, 2000 * Math.pow(2, retry)));
+          continue;
+        }
+        throw Object.assign(new Error(`Google 요청 제한 (${res.status})`), { isRateLimit: true });
+      }
+      if (!res.ok) throw new Error(`번역 실패: ${res.status}`);
+      const data = await res.json();
+      return data[0].map(s => s[0]).join('');
+    } catch (err) {
+      if (err.isRateLimit) throw err;
+      if (err.name === 'AbortError' && retry < maxRetries) {
+        await new Promise(r => setTimeout(r, 1000 * (retry + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Google: 최대 재시도 초과');
+}
+
+async function translateText(text, sl, tl) {
+  if (!text || !text.trim()) return '';
+  const engine = document.getElementById('translate-engine').value;
+
+  if (engine === 'gemini') {
+    const apiKey = document.getElementById('gemini-api-key').value.trim();
+    if (!apiKey) throw new Error('Gemini API 키를 입력하세요');
+    localStorage.setItem('gemini-api-key', apiKey);
+    const slName = LANG_NAMES[sl] || sl;
+    const tlName = LANG_NAMES[tl] || tl;
+    const style = document.getElementById('translate-style').value.trim();
+    if (style) localStorage.setItem('translate-style', style);
+    let prompt = `Translate the following text from ${slName} to ${tlName}. Return ONLY the translated text, nothing else. Do not add quotes or explanations.`;
+    if (style) prompt += `\nTranslation style/context: ${style}`;
+    prompt += `\n\n${text}`;
+    const tier = getGeminiTier();
+    for (const modelName of tier.models) {
+      for (let retry = 0; retry <= 2; retry++) {
+        try {
+          return await geminiCall(prompt, apiKey, modelName);
+        } catch (err) {
+          if (err.is429 && retry < 2) { await new Promise(r => setTimeout(r, 2000)); continue; }
+          if (err.is429) break;
+          throw err;
+        }
+      }
+    }
+    throw new Error('Gemini: 할당량 초과');
+  }
+
+  return await googleTranslateWithRetry(text, sl, tl);
+}
+
+function buildGeminiPrompt(texts, slName, tlName, style) {
+  const numbered = texts.map((t, i) => `[${i}] ${t}`).join('\n');
+  let prompt = `You are a translator. Translate each line from ${slName} to ${tlName}.
+Each input line starts with [number]. You MUST output the same [number] followed by the translated text.
+Do NOT add any explanation, markdown, or code blocks. Output ONLY the translated lines.`;
+  if (style) prompt += `\nTranslation style/context: ${style}`;
+  prompt += `\n\n${numbered}`;
+  return prompt;
+}
+
+function parseGeminiResponse(rawResponse, totalLength) {
+  const results = new Array(totalLength).fill('');
+  let cleaned = rawResponse;
+
+  cleaned = cleaned.replace(/^```[\w]*\n?/gm, '').replace(/```$/gm, '');
+  cleaned = cleaned.trim();
+
+  const lines = cleaned.split('\n');
+  let parsed = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let match = line.match(/^\[(\d+)\]\s*(.*)/);
+    if (!match) match = line.match(/^(\d+)\.\s+(.*)/);
+    if (!match) match = line.match(/^(\d+)\)\s+(.*)/);
+    if (!match) match = line.match(/^(\d+):\s+(.*)/);
+    if (match) {
+      const idx = parseInt(match[1]);
+      if (idx < totalLength && match[2].trim()) {
+        results[idx] = match[2].trim();
+        parsed++;
+      }
+    }
+  }
+
+  if (parsed === 0 && totalLength === 1) {
+    const singleLine = cleaned.replace(/^\[0\]\s*/, '').trim();
+    if (singleLine) { results[0] = singleLine; parsed = 1; }
+  }
+
+  console.log(`[Gemini 파싱] ${parsed}/${totalLength}건 파싱 성공. 원본 응답 (첫 500자):`, rawResponse.slice(0, 500));
+  if (parsed === 0) {
+    console.error('[Gemini 파싱 실패] 전체 응답:', rawResponse);
+  }
+  return results;
+}
+
+async function geminiBatchTranslate(texts, sl, tl, onChunkDone, abortController) {
+  const apiKey = document.getElementById('gemini-api-key').value.trim();
+  if (!apiKey) throw new Error('API 키가 없습니다.');
+  const slName = LANG_NAMES[sl] || sl;
+  const tlName = LANG_NAMES[tl] || tl;
+  const style = document.getElementById('translate-style').value.trim();
+  const tier = getGeminiTier();
+  const modelName = tier.models[0];
+  const isFree = document.getElementById('gemini-tier').value === 'free';
+
+  const CHUNK = Math.min(tier.batchSize, isFree ? 30 : 50);
+  const MAX_PARALLEL = isFree ? 2 : 15;
+  const CHUNK_DELAY = isFree ? 4000 : 50;
+
+  const results = new Array(texts.length).fill('');
+  const chunks = [];
+  for (let i = 0; i < texts.length; i += CHUNK) {
+    chunks.push({ startIdx: i, texts: texts.slice(i, i + CHUNK) });
+  }
+
+  let active = 0;
+  let chunkIdx = 0;
+  let aborted = false;
+  let currentDelay = CHUNK_DELAY;
+  let lastError = '';
+
+  if (abortController?.signal) {
+    abortController.signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+  }
+
+  console.log(`[Gemini 배치] 시작: ${texts.length}건, 청크=${CHUNK}개씩, 총 ${chunks.length}청크, 병렬=${MAX_PARALLEL}, 딜레이=${CHUNK_DELAY}ms, 모델=${modelName}`);
+
+  await new Promise((resolve) => {
+    function launch() {
+      while (active < MAX_PARALLEL && chunkIdx < chunks.length) {
+        if (aborted) { if (active === 0) resolve(); return; }
+        const chunk = chunks[chunkIdx];
+        const myIdx = chunkIdx;
+        chunkIdx++;
+        active++;
+        (async () => {
+          if (myIdx > 0) await new Promise(r => setTimeout(r, currentDelay));
+          if (aborted) { active--; if (active === 0) resolve(); return; }
+          const prompt = buildGeminiPrompt(chunk.texts, slName, tlName, style);
+          for (let retry = 0; retry <= tier.retries; retry++) {
+            if (aborted) break;
+            try {
+              const raw = await geminiCall(prompt, apiKey, modelName);
+              const parsed = parseGeminiResponse(raw, chunk.texts.length);
+              let chunkOk = 0;
+              for (let j = 0; j < chunk.texts.length; j++) {
+                if (parsed[j]) { results[chunk.startIdx + j] = parsed[j]; chunkOk++; }
+              }
+              console.log(`[Gemini 청크 ${myIdx}] 성공: ${chunkOk}/${chunk.texts.length}`);
+              if (onChunkDone) onChunkDone(chunkOk, chunk.texts.length - chunkOk);
+              currentDelay = Math.max(currentDelay * 0.9, CHUNK_DELAY);
+              break;
+            } catch (err) {
+              if (err.name === 'AbortError') { aborted = true; break; }
+              console.error(`[Gemini 청크 ${myIdx}] 에러 (시도 ${retry+1}/${tier.retries+1}):`, err.message);
+              lastError = err.message;
+              if (err.is429 && retry < tier.retries) {
+                const backoff = Math.min(2000 * Math.pow(2, retry), 30000);
+                currentDelay = Math.min(currentDelay * 2, 30000);
+                console.warn(`[Gemini] 429 백오프 ${backoff}ms, 다음 딜레이 ${currentDelay}ms`);
+                await new Promise(r => setTimeout(r, backoff));
+                continue;
+              }
+              if (onChunkDone) onChunkDone(0, chunk.texts.length);
+              break;
+            }
+          }
+          active--;
+          if (chunkIdx >= chunks.length && active === 0) resolve();
+          else if (!aborted) launch();
+          else if (active === 0) resolve();
+        })();
+      }
+      if (chunks.length === 0) resolve();
+    }
+    launch();
+  });
+
+  if (lastError) console.error('[Gemini 배치] 마지막 에러:', lastError);
+
+  return results;
+}
+
+let translating = false;
+let translateAbort = false;
+
+async function translateRowGoogle(text, sl, tl) {
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${tl}&dt=t&q=${encodeURIComponent(text)}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`번역 실패: ${res.status}`);
+  const data = await res.json();
+  return data[0].map(s => s[0]).join('');
+}
+
+async function translateRow(row, engine = 'google') {
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  const baseText = String(row.base);
+  if (!baseText.trim()) return;
+  const editKey = row.status === 'renamed' ? 'renamed:' + row.key : row.key;
+  try {
+    const translated = engine === 'gemini'
+      ? await translateText(baseText, sl, tl)
+      : await translateRowGoogle(baseText, sl, tl);
+    edits.set(editKey, translated);
+    updateEditCount(); updateStats(); renderTable();
+    const label = engine === 'gemini' ? 'Gemini' : 'Google';
+    toast(`"${row.key}" 번역 완료 (${label})`);
+  } catch (err) {
+    toast(`번역 실패: ${err.message}`);
+    renderTable();
+  }
+}
+
+function formatTime(ms) {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}초`;
+  const m = Math.floor(s / 60);
+  return `${m}분 ${s % 60}초`;
+}
+
+async function sleepWithBackoff(baseDelay, retryCount) {
+  const delay = Math.min(baseDelay * Math.pow(2, retryCount), 10000);
+  await new Promise(r => setTimeout(r, delay));
+}
+
+async function translateAll(retranslateAll = false) {
+  if (translating) return;
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  let targets;
+
+  if (retranslateAll) {
+    targets = allRows.filter(r => {
+      if (r.status === 'extra') return false;
+      return String(r.base).trim() !== '';
+    });
+  } else {
+    targets = allRows.filter(r => {
+      if (r.status !== 'missing' && r.status !== 'empty') return false;
+      const editKey = r.status === 'renamed' ? 'renamed:' + r.key : r.key;
+      if (edits.has(editKey)) return false;
+      return String(r.base).trim() !== '';
+    });
+  }
+
+  if (targets.length === 0) { toast('번역할 항목이 없습니다'); return; }
+  const msg = retranslateAll
+    ? `전체 ${targets.length}건을 다시 번역하시겠습니까? 기존 번역이 모두 덮어씌워집니다.`
+    : `${targets.length}건을 번역하시겠습니까?`;
+  if (!confirm(msg)) return;
+
+  translating = true;
+  translateAbort = false;
+  const abortCtrl = new AbortController();
+  const btn = document.getElementById('btn-translate-all');
+  const progress = document.getElementById('translate-progress');
+  const fill = document.getElementById('translate-progress-fill');
+  const pText = document.getElementById('translate-progress-text');
+  btn.disabled = true;
+  btn.textContent = '번역 중지';
+  btn.disabled = false;
+  btn.onclick = () => { translateAbort = true; abortCtrl.abort(); btn.disabled = true; btn.textContent = '중지 중...'; };
+  progress.style.display = 'block';
+
+  let done = 0, failed = 0;
+  const startTime = Date.now();
+  const isGemini = document.getElementById('translate-engine').value === 'gemini';
+  const tier = isGemini ? getGeminiTier() : null;
+  const BASE_DELAY = isGemini ? tier.batchDelay : 80;
+  let consecutiveErrors = 0;
+
+  const updateProgress = () => {
+    const total = done + failed;
+    fill.style.width = (total / targets.length * 100) + '%';
+    const elapsed = Date.now() - startTime;
+    const eta = total > 0 ? (elapsed / total) * (targets.length - total) : 0;
+    pText.textContent = `${total} / ${targets.length} (${formatTime(elapsed)}${eta > 0 ? ` · 남은 시간 ~${formatTime(eta)}` : ''})`;
+  };
+
+  try {
+    if (isGemini) {
+      toast(`Gemini · ${tier.models[0]} · ${targets.length}건 번역 시작`);
+      const texts = targets.map(row => String(row.base));
+      const translations = await geminiBatchTranslate(texts, sl, tl, (ok, fail) => {
+        done += ok; failed += fail;
+        updateProgress();
+      }, abortCtrl);
+      for (let j = 0; j < targets.length; j++) {
+        const editKey = targets[j].status === 'renamed' ? 'renamed:' + targets[j].key : targets[j].key;
+        if (translations[j]) edits.set(editKey, translations[j]);
+      }
+    } else {
+      const GOOGLE_BATCH = 5;
+      let googleDelay = 300;
+      let consecutiveFailBatches = 0;
+      for (let i = 0; i < targets.length; i += GOOGLE_BATCH) {
+        if (translateAbort) break;
+        const batch = targets.slice(i, i + GOOGLE_BATCH);
+        const results = await Promise.allSettled(
+          batch.map(row => googleTranslateWithRetry(String(row.base), sl, tl).then(t => ({ row, translated: t })))
+        );
+        let batchFailed = 0;
+        for (const r of results) {
+          if (r.status === 'fulfilled') {
+            const { row, translated } = r.value;
+            edits.set(row.status === 'renamed' ? 'renamed:' + row.key : row.key, translated);
+            done++;
+          } else { failed++; batchFailed++; }
+        }
+        if (batchFailed > 0) {
+          consecutiveFailBatches++;
+          googleDelay = Math.min(googleDelay * 2, 10000);
+          if (consecutiveFailBatches >= 5) {
+            toast(`연속 ${consecutiveFailBatches}회 실패 — 10초 대기 후 계속`);
+            await new Promise(r => setTimeout(r, 10000));
+          }
+        } else {
+          consecutiveFailBatches = 0;
+          googleDelay = Math.max(googleDelay * 0.9, 300);
+        }
+        updateProgress();
+        if (done % 50 === 0 && done > 0) {
+          updateEditCount(); updateStats(); renderTable();
+        }
+        if (i + GOOGLE_BATCH < targets.length) await new Promise(r => setTimeout(r, googleDelay));
+      }
+    }
+  } catch (err) {
+    console.error('[translateAll] 치명적 오류:', err);
+    if (err.name !== 'AbortError') toast(`오류: ${err.message}`);
+  } finally {
+    updateEditCount(); updateStats(); renderTable();
+    btn.textContent = '누락+빈 값 번역';
+    btn.disabled = false;
+    btn.onclick = () => translateAll(false);
+    translating = false;
+    const wasAborted = translateAbort;
+    translateAbort = false;
+    const hideDelay = (done === 0 && failed > 0) ? 10000 : 3000;
+    setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0%'; pText.textContent = ''; }, hideDelay);
+    let resultMsg;
+    if (wasAborted) resultMsg = `중지됨: ${done}건 번역 완료`;
+    else if (done === 0 && failed > 0) resultMsg = `번역 실패: ${failed}건 모두 실패 — F12 콘솔에서 원인 확인`;
+    else resultMsg = `번역 완료: ${done}건 성공${failed > 0 ? `, ${failed}건 실패` : ''}`;
+    toast(resultMsg);
+    console.log(`[translateAll] 결과: ${done}건 성공, ${failed}건 실패, 중단=${wasAborted}`);
+  }
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function escAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+document.querySelectorAll('.filter-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderTable();
+  });
+});
+document.getElementById('search').addEventListener('input', debounce(renderTable, 200));
+
+const _loadSentinel = document.getElementById('load-sentinel');
+if (_loadSentinel) {
+  new IntersectionObserver(entries => {
+    if (entries[0].isIntersecting && renderedCount < filteredRows.length) renderNextChunk();
+  }, { rootMargin: '300px' }).observe(_loadSentinel);
+}
+
+window.addEventListener('beforeunload', e => {
+  const hasAny = (edits.size > 0 || deletedKeys.size > 0) || sEdits.size > 0 || cpHasEdits();
+  if (hasAny) { e.preventDefault(); e.returnValue = ''; }
+});
+
+/* ===== TAB SWITCHING ===== */
+let currentMode = 'compare';
+function switchMode(mode) {
+  if (mode === currentMode) return;
+  const hasUnsaved = currentMode === 'compare' ? (edits.size > 0 || deletedKeys.size > 0)
+    : currentMode === 'single' ? sEdits.size > 0
+    : currentMode === 'content' ? cpHasEdits() : false;
+  if (hasUnsaved && !confirm('미저장 변경사항이 있습니다. 탭을 전환하시겠습니까?')) return;
+  currentMode = mode;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.mode === mode));
+  document.querySelectorAll('.mode-panel').forEach(p => p.classList.toggle('active', p.id === 'mode-' + mode));
+  const hasData = mode === 'compare' ? !!(state.base && state.target) : (mode === 'single' ? !!sState.data : !!cpState.schema);
+  document.getElementById('translate-bar').classList.toggle('visible', hasData);
+  document.querySelectorAll('[data-compare-only]').forEach(el => el.style.display = mode === 'compare' ? '' : 'none');
+  updateGlobalUI();
+}
+function updateGlobalUI() {
+  const hasUnsaved = currentMode === 'compare' ? (edits.size > 0 || deletedKeys.size > 0)
+    : currentMode === 'single' ? sEdits.size > 0
+    : currentMode === 'content' ? cpHasEdits() : false;
+  const el = document.getElementById('edit-count');
+  const bar = document.getElementById('unsaved-bar');
+  const actions = document.getElementById('header-actions');
+  const reset = document.getElementById('btn-reset');
+  if (hasUnsaved) {
+    const n = currentMode === 'compare' ? edits.size + deletedKeys.size : currentMode === 'single' ? sEdits.size : cpEditCount();
+    el.textContent = `${n}건 수정됨 (미저장)`;
+    bar.classList.add('visible');
+    document.getElementById('unsaved-text').textContent = `${n}건의 변경사항이 아직 저장되지 않았습니다`;
+    actions.style.display = 'flex';
+  } else {
+    el.textContent = '';
+    bar.classList.remove('visible');
+    actions.style.display = 'none';
+  }
+  const hasData = currentMode === 'compare' ? !!(state.base && state.target) : currentMode === 'single' ? !!sState.data : !!cpState.schema;
+  reset.style.display = hasData ? '' : 'none';
+}
+function resetCurrentMode() {
+  if (currentMode === 'compare') resetAll();
+  else if (currentMode === 'single') sReset();
+  else if (currentMode === 'content') cpReset();
+}
+function saveCurrentMode() {
+  if (currentMode === 'compare') saveJson();
+  else if (currentMode === 'single') sSave();
+  else if (currentMode === 'content') cpSave();
+}
+function undoCurrentMode() {
+  if (currentMode === 'compare') undoAll();
+  else if (currentMode === 'single') { if (!confirm('모든 수정사항을 되돌리시겠습니까?')) return; sEdits.clear(); updateGlobalUI(); sRender(); toast('되돌리기 완료'); }
+  else if (currentMode === 'content') { if (!confirm('모든 수정사항을 되돌리시겠습니까?')) return; cpEdits.keys.clear(); cpEdits.descs.clear(); cpEdits.sections.clear(); cpEdits.values.clear(); updateGlobalUI(); cpRenderAll(); toast('되돌리기 완료'); }
+}
+
+/* ===== SINGLE JSON MODE ===== */
+const sState = { data: null, fileName: 'translated.json', fileHandle: null };
+const sEdits = new Map();
+const SKIP_RE = /^(true|false|\d+(\.\d+)?|)$/i;
+
+function sIsSkip(val) { return SKIP_RE.test(String(val).trim()); }
+
+function sReset() {
+  sState.data = null; sState.fileHandle = null; sEdits.clear();
+  document.getElementById('zone-single').classList.remove('loaded');
+  document.getElementById('count-single').textContent = '';
+  document.getElementById('toolbar-single').style.display = 'none';
+  document.getElementById('stats-single').style.display = 'none';
+  document.getElementById('single-table-wrap').style.display = 'none';
+  document.getElementById('empty-single').style.display = '';
+  document.getElementById('single-tbody').innerHTML = '';
+  updateGlobalUI(); toast('초기화 완료');
+}
+
+function sLoadFile(file, handle) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const data = parseJsonc(e.target.result);
+      if (typeof data !== 'object' || Array.isArray(data)) { alert('키-값 형태의 JSON이 아닙니다'); return; }
+      sState.data = data; sState.fileName = file.name; sState.fileHandle = handle || null;
+      sEdits.clear();
+      const zone = document.getElementById('zone-single');
+      zone.classList.add('loaded');
+      const mode = sState.fileHandle ? '직접 저장 가능' : '다운로드 저장';
+      document.getElementById('count-single').textContent = `${Object.keys(data).length}개 키 로드됨 (${file.name} · ${mode})`;
+      document.getElementById('toolbar-single').style.display = 'flex';
+      document.getElementById('empty-single').style.display = 'none';
+      document.getElementById('single-table-wrap').style.display = '';
+      document.getElementById('translate-bar').classList.add('visible');
+      sRender(); updateGlobalUI();
+    } catch (err) { alert('JSON 파싱 오류: ' + err.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+(function initSingleDropZone() {
+  const zone = document.getElementById('zone-single');
+  const input = document.getElementById('file-single');
+  zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+  zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+  zone.addEventListener('drop', async e => {
+    e.preventDefault(); zone.classList.remove('dragover');
+    if (!e.dataTransfer.items.length) return;
+    const item = e.dataTransfer.items[0]; const file = item.getAsFile();
+    let handle = null;
+    if (item.getAsFileSystemHandle) { try { handle = await item.getAsFileSystemHandle(); } catch {} }
+    if (file) sLoadFile(file, handle);
+  });
+  if (window.showOpenFilePicker) {
+    input.addEventListener('click', async e => {
+      e.preventDefault();
+      try {
+        const [handle] = await window.showOpenFilePicker({ types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }] });
+        sLoadFile(await handle.getFile(), handle);
+      } catch {}
+    });
+  } else {
+    input.addEventListener('change', () => { if (input.files.length) sLoadFile(input.files[0]); });
+  }
+})();
+
+function sRender() {
+  if (!sState.data) return;
+  const filter = document.querySelector('[data-sfilter].active')?.dataset.sfilter || 'all';
+  const search = document.getElementById('search-single').value.toLowerCase();
+  const entries = Object.entries(sState.data);
+  let skip = 0, translatable = 0, edited = 0, untrans = 0;
+  entries.forEach(([k, v]) => {
+    sIsSkip(v) ? skip++ : translatable++;
+    if (sEdits.has(k)) edited++;
+    const ev = sEdits.has(k) ? sEdits.get(k) : v;
+    if (isUntranslated(ev)) untrans++;
+  });
+  document.getElementById('stats-single').style.display = 'flex';
+  document.getElementById('stats-single').innerHTML = `<span>전체: ${entries.length}</span><span style="color:#58a6ff">번역 대상: ${translatable}</span><span style="color:#6e7681">스킵: ${skip}</span>${untrans ? `<span style="color:#e55b3c">미번역: ${untrans}</span>` : ''}${edited ? `<span style="color:#f0883e">수정됨: ${edited}</span>` : ''}`;
+
+  const tbody = document.getElementById('single-tbody');
+  tbody.innerHTML = '';
+  for (const [key, val] of entries) {
+    const isSkip = sIsSkip(val);
+    const isEdited = sEdits.has(key);
+    const effectiveVal = sEdits.has(key) ? sEdits.get(key) : val;
+    if (filter === 'translatable' && isSkip) continue;
+    if (filter === 'skip' && !isSkip) continue;
+    if (filter === 'edited' && !isEdited) continue;
+    if (filter === 'untranslated' && !isUntranslated(effectiveVal)) continue;
+    if (search && !key.toLowerCase().includes(search) && !String(val).toLowerCase().includes(search)) continue;
+    const tr = document.createElement('tr');
+    if (isEdited) tr.classList.add('row-edited');
+    tr.innerHTML = `
+      <td style="font-family:'Cascadia Code',monospace;font-size:12px">${esc(key)}</td>
+      <td class="val-cell">${esc(String(val))}</td>
+      <td class="val-cell editable" data-s-key="${escAttr(key)}" data-s-orig="${escAttr(String(val))}">${esc(String(effectiveVal))}</td>
+      <td><span class="tag ${isSkip ? 'tag-skip' : 'tag-translatable'}">${isSkip ? '스킵' : '번역'}</span>${isEdited ? '<span class="tag tag-edited">수정됨</span>' : ''}</td>`;
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById('single-tbody').addEventListener('click', e => {
+  const cell = e.target.closest('.editable[data-s-key]');
+  if (!cell || cell.querySelector('.edit-area')) return;
+  const key = cell.dataset.sKey;
+  const currentVal = sEdits.has(key) ? sEdits.get(key) : cell.dataset.sOrig;
+  const ta = document.createElement('textarea'); ta.className = 'edit-area'; ta.value = currentVal;
+  const acts = document.createElement('div'); acts.className = 'edit-actions';
+  acts.innerHTML = '<button class="edit-save">저장</button><button class="edit-cancel">취소</button>';
+  cell.textContent = ''; cell.appendChild(ta); cell.appendChild(acts); ta.focus();
+  const adjustH = () => { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px'; };
+  ta.addEventListener('input', adjustH); adjustH();
+  acts.querySelector('.edit-save').addEventListener('click', () => {
+    if (ta.value !== cell.dataset.sOrig) sEdits.set(key, ta.value); else sEdits.delete(key);
+    updateGlobalUI(); sRender(); toast('수정 완료');
+  });
+  acts.querySelector('.edit-cancel').addEventListener('click', () => sRender());
+  ta.addEventListener('keydown', ev => { if (ev.key === 'Escape') sRender(); if (ev.key === 'Enter' && ev.ctrlKey) acts.querySelector('.edit-save').click(); });
+});
+
+document.querySelectorAll('[data-sfilter]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('[data-sfilter]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active'); sRender();
+  });
+});
+document.getElementById('search-single').addEventListener('input', debounce(sRender, 200));
+
+async function sTranslateAll() {
+  if (translating || !sState.data) return;
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  const targets = Object.entries(sState.data).filter(([k, v]) => !sIsSkip(v) && !sEdits.has(k));
+  if (!targets.length) { toast('번역할 항목이 없습니다'); return; }
+  if (!confirm(`${targets.length}건을 번역하시겠습니까?`)) return;
+  translating = true;
+  const progress = document.getElementById('single-progress');
+  const fill = document.getElementById('single-progress-fill');
+  const pText = document.getElementById('single-progress-text');
+  progress.style.display = 'block';
+  let done = 0, failed = 0; const startTime = Date.now();
+  const updateP = () => { const t = done + failed; fill.style.width = (t / targets.length * 100) + '%'; pText.textContent = `${t}/${targets.length}`; };
+  try {
+    const isGemini = document.getElementById('translate-engine').value === 'gemini';
+    if (isGemini) {
+      const texts = targets.map(([, v]) => String(v));
+      const results = await geminiBatchTranslate(texts, sl, tl, (ok, fail) => { done += ok; failed += fail; updateP(); });
+      for (let i = 0; i < targets.length; i++) { if (results[i]) sEdits.set(targets[i][0], results[i]); }
+    } else {
+      let delay = 300;
+      for (let i = 0; i < targets.length; i += 5) {
+        const batch = targets.slice(i, i + 5);
+        const results = await Promise.allSettled(batch.map(([, v]) => googleTranslateWithRetry(String(v), sl, tl)));
+        results.forEach((r, j) => { if (r.status === 'fulfilled') { sEdits.set(batch[j][0], r.value); done++; } else failed++; });
+        updateP(); if (i + 5 < targets.length) await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  } catch (err) { toast(`오류: ${err.message}`); }
+  translating = false; updateGlobalUI(); sRender();
+  setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0%'; pText.textContent = ''; }, 3000);
+  toast(`번역 완료: ${done}건 성공${failed ? `, ${failed}건 실패` : ''}`);
+}
+
+async function sSave() {
+  if (!sState.data) return;
+  const output = {};
+  for (const [k, v] of Object.entries(sState.data)) output[k] = sEdits.has(k) ? sEdits.get(k) : v;
+  const jsonStr = JSON.stringify(output, null, 2);
+  await _saveFile(jsonStr, sState.fileName, sState.fileHandle);
+  sState.data = output; sEdits.clear(); updateGlobalUI(); sRender();
+}
+
+async function _saveFile(jsonStr, fileName, fileHandle) {
+  let saved = false;
+  if (fileHandle) {
+    try { const w = await fileHandle.createWritable(); await w.write(jsonStr); await w.close(); toast(`${fileName} 직접 저장 완료!`); saved = true; } catch {}
+  }
+  if (!saved) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([jsonStr], { type: 'application/json;charset=utf-8' }));
+    a.download = fileName; a.click(); URL.revokeObjectURL(a.href); toast(`${fileName} 다운로드 완료!`);
+  }
+}
+
+/* ===== CONTENT.JSON MODE ===== */
+const cpState = { raw: null, rawText: null, schema: null, configRaw: null, contentHandle: null, configHandle: null, contentFileName: 'content.json', configFileName: 'config.json', sections: [] };
+const cpEdits = { keys: new Map(), descs: new Map(), sections: new Map(), values: new Map() };
+
+function cpHasEdits() { return cpEdits.keys.size + cpEdits.descs.size + cpEdits.sections.size + cpEdits.values.size > 0; }
+function cpEditCount() { return cpEdits.keys.size + cpEdits.descs.size + cpEdits.sections.size + cpEdits.values.size; }
+
+function cpReset() {
+  cpState.raw = null; cpState.schema = null; cpState.configRaw = null; cpState.contentHandle = null; cpState.configHandle = null; cpState.sections = [];
+  cpEdits.keys.clear(); cpEdits.descs.clear(); cpEdits.sections.clear(); cpEdits.values.clear();
+  document.getElementById('zone-content').classList.remove('loaded');
+  document.getElementById('zone-config').classList.remove('loaded');
+  document.getElementById('count-content').textContent = '';
+  document.getElementById('count-config').textContent = '';
+  document.getElementById('toolbar-content').style.display = 'none';
+  document.getElementById('stats-content').style.display = 'none';
+  document.getElementById('cp-sections').innerHTML = '';
+  document.getElementById('empty-content').style.display = '';
+  updateGlobalUI(); toast('초기화 완료');
+}
+
+function cpLoadContent(file, handle) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed = parseJsonc(e.target.result);
+      if (!parsed.ConfigSchema) { alert('ConfigSchema가 없는 파일입니다'); return; }
+      cpState.raw = parsed; cpState.rawText = e.target.result; cpState.schema = parsed.ConfigSchema;
+      cpState.contentHandle = handle || null; cpState.contentFileName = file.name;
+      cpEdits.keys.clear(); cpEdits.descs.clear(); cpEdits.sections.clear(); cpEdits.values.clear();
+      document.getElementById('zone-content').classList.add('loaded');
+      const mode = cpState.contentHandle ? '직접 저장' : '다운로드';
+      document.getElementById('count-content').textContent = `${Object.keys(cpState.schema).length}개 설정 (${file.name} · ${mode})`;
+      cpParseSchema(); cpRenderAll();
+      document.getElementById('translate-bar').classList.add('visible');
+      updateGlobalUI();
+    } catch (err) { alert('파싱 오류: ' + err.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+function cpLoadConfig(file, handle) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const parsed = parseJsonc(e.target.result);
+      cpState.configRaw = parsed; cpState.configHandle = handle || null; cpState.configFileName = file.name;
+      document.getElementById('zone-config').classList.add('loaded');
+      document.getElementById('count-config').textContent = `${Object.keys(parsed).length}개 키 (${file.name})`;
+      toast('config.json 로드 완료 - 저장 시 함께 치환됩니다');
+    } catch (err) { alert('config.json 파싱 오류: ' + err.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+(function initContentDropZones() {
+  ['content', 'config'].forEach(which => {
+    const zone = document.getElementById('zone-' + which);
+    const input = document.getElementById('file-' + which);
+    const loadFn = which === 'content' ? cpLoadContent : cpLoadConfig;
+    zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('dragover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
+    zone.addEventListener('drop', async e => {
+      e.preventDefault(); zone.classList.remove('dragover');
+      if (!e.dataTransfer.items.length) return;
+      const item = e.dataTransfer.items[0]; const file = item.getAsFile();
+      let handle = null;
+      if (item.getAsFileSystemHandle) { try { handle = await item.getAsFileSystemHandle(); } catch {} }
+      if (file) loadFn(file, handle);
+    });
+    if (window.showOpenFilePicker) {
+      input.addEventListener('click', async e => {
+        e.preventDefault();
+        try {
+          const [handle] = await window.showOpenFilePicker({ types: [{ description: 'JSON', accept: { 'application/json': ['.json'] } }] });
+          loadFn(await handle.getFile(), handle);
+        } catch {}
+      });
+    } else {
+      input.addEventListener('change', () => { if (input.files.length) loadFn(input.files[0]); });
+    }
+  });
+})();
+
+function cpParseSchema() {
+  const schema = cpState.schema;
+  const sectionMap = new Map();
+  for (const [key, entry] of Object.entries(schema)) {
+    const sec = entry.Section || '(없음)';
+    if (!sectionMap.has(sec)) sectionMap.set(sec, []);
+    const allowVals = entry.AllowValues ? entry.AllowValues.split(', ').map(v => v.trim()).filter(Boolean) : [];
+    sectionMap.get(sec).push({ key, description: entry.Description || '', section: sec, allowValues: allowVals, defaultVal: entry.Default || '' });
+  }
+  cpState.sections = Array.from(sectionMap.entries()).map(([name, items]) => ({ name, items }));
+}
+
+function cpRenderAll() {
+  const container = document.getElementById('cp-sections');
+  container.innerHTML = '';
+  document.getElementById('toolbar-content').style.display = 'flex';
+  document.getElementById('empty-content').style.display = 'none';
+
+  const search = (document.getElementById('search-content').value || '').toLowerCase();
+  let totalKeys = 0, totalDescs = 0, totalVals = 0;
+  const allValues = new Set();
+
+  for (const sec of cpState.sections) {
+    for (const item of sec.items) {
+      totalKeys++; if (item.description) totalDescs++;
+      item.allowValues.forEach(v => { allValues.add(v); totalVals++; });
+    }
+  }
+
+  document.getElementById('stats-content').style.display = 'flex';
+  document.getElementById('stats-content').innerHTML = `<span>섹션: ${cpState.sections.length}</span><span>설정: ${totalKeys}</span><span>Description: ${totalDescs}</span><span>AllowValues 옵션: ${allValues.size} (중복제거)</span>${cpHasEdits() ? `<span style="color:#f0883e">수정: ${cpEditCount()}</span>` : ''}`;
+
+  for (const sec of cpState.sections) {
+    const filteredItems = search ? sec.items.filter(item =>
+      item.key.toLowerCase().includes(search) || item.description.toLowerCase().includes(search) ||
+      item.allowValues.some(v => v.toLowerCase().includes(search)) || sec.name.toLowerCase().includes(search)
+    ) : sec.items;
+    if (search && !filteredItems.length) continue;
+
+    const div = document.createElement('div'); div.className = 'cp-section open';
+    const secTrans = cpEdits.sections.get(sec.name) ?? '';
+    div.innerHTML = `
+      <div class="cp-section-header" onclick="this.parentElement.classList.toggle('open')">
+        <span class="cp-section-arrow">▶</span>
+        <span class="cp-section-name">${esc(sec.name)}</span>
+        <span style="color:#484f58">→</span>
+        <input class="cp-section-trans" value="${escAttr(secTrans)}" placeholder="섹션 번역..." data-cp-sec="${escAttr(sec.name)}" onclick="event.stopPropagation()">
+        <span class="cp-section-count">${filteredItems.length}개</span>
+        <button class="btn" style="font-size:11px;padding:4px 10px;margin-left:auto" onclick="event.stopPropagation();cpTranslateSection('${escAttr(sec.name)}')">섹션 번역</button>
+      </div>
+      <div class="cp-section-body"></div>`;
+    const body = div.querySelector('.cp-section-body');
+    for (const item of filteredItems) body.appendChild(cpCreateItemEl(item));
+    container.appendChild(div);
+  }
+}
+
+function cpCreateItemEl(item) {
+  const div = document.createElement('div'); div.className = 'cp-item'; div.dataset.cpKey = item.key;
+  const keyTrans = cpEdits.keys.get(item.key) ?? '';
+  const descTrans = cpEdits.descs.get(item.key) ?? '';
+  const isSkipVal = v => /^(true|false)$/i.test(v.trim());
+
+  let valuesHtml = '';
+  if (item.allowValues.length) {
+    valuesHtml = `<div class="cp-item-row"><span class="cp-item-label">AllowValues</span><div class="cp-values-wrap">`;
+    for (const v of item.allowValues) {
+      const skip = isSkipVal(v);
+      const trans = cpEdits.values.get(v) ?? '';
+      valuesHtml += `<div class="cp-value-chip ${skip ? 'skip' : ''}"><span class="cp-val-orig">${esc(v)}</span>${skip ? '' : `<span style="color:#484f58">→</span><input class="cp-val-input" value="${escAttr(trans)}" placeholder="${escAttr(v)}" data-cp-val="${escAttr(v)}">`}</div>`;
+    }
+    valuesHtml += `</div></div>`;
+  }
+
+  div.innerHTML = `
+    <div class="cp-item-header">
+      <span class="cp-item-key">${esc(item.key)}</span>
+      <span style="color:#484f58">→</span>
+      <input class="cp-item-key-input" value="${escAttr(keyTrans)}" placeholder="키 번역..." data-cp-keyname="${escAttr(item.key)}">
+      <button class="translate-row-btn translate-row-google" onclick="cpTranslateItem('${escAttr(item.key)}')" style="opacity:1">번역</button>
+    </div>
+    <div class="cp-item-row">
+      <span class="cp-item-label">Description</span>
+      <div class="cp-item-orig">${esc(item.description)}</div>
+      <textarea class="cp-item-trans" data-cp-desc="${escAttr(item.key)}" placeholder="설명 번역...">${esc(descTrans)}</textarea>
+    </div>
+    ${valuesHtml}`;
+  return div;
+}
+
+document.getElementById('cp-sections').addEventListener('input', e => {
+  const secInput = e.target.closest('[data-cp-sec]');
+  if (secInput) { const v = secInput.value.trim(); v ? cpEdits.sections.set(secInput.dataset.cpSec, v) : cpEdits.sections.delete(secInput.dataset.cpSec); updateGlobalUI(); return; }
+  const keyInput = e.target.closest('[data-cp-keyname]');
+  if (keyInput) { const v = keyInput.value.trim(); v ? cpEdits.keys.set(keyInput.dataset.cpKeyname, v) : cpEdits.keys.delete(keyInput.dataset.cpKeyname); updateGlobalUI(); return; }
+  const descInput = e.target.closest('[data-cp-desc]');
+  if (descInput) { const v = descInput.value.trim(); v ? cpEdits.descs.set(descInput.dataset.cpDesc, v) : cpEdits.descs.delete(descInput.dataset.cpDesc); updateGlobalUI(); return; }
+  const valInput = e.target.closest('[data-cp-val]');
+  if (valInput) { const v = valInput.value.trim(); v ? cpEdits.values.set(valInput.dataset.cpVal, v) : cpEdits.values.delete(valInput.dataset.cpVal); updateGlobalUI(); return; }
+});
+
+document.getElementById('search-content').addEventListener('input', debounce(() => { if (cpState.schema) cpRenderAll(); }, 200));
+
+async function cpTranslateAll() {
+  if (translating || !cpState.schema) return;
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  const textsToTranslate = [];
+  const assignments = [];
+
+  for (const sec of cpState.sections) {
+    if (!cpEdits.sections.has(sec.name)) { textsToTranslate.push(sec.name); assignments.push({ type: 'section', key: sec.name }); }
+    for (const item of sec.items) {
+      if (!cpEdits.keys.has(item.key)) { textsToTranslate.push(item.key); assignments.push({ type: 'key', key: item.key }); }
+      if (item.description && !cpEdits.descs.has(item.key)) { textsToTranslate.push(item.description); assignments.push({ type: 'desc', key: item.key }); }
+      for (const v of item.allowValues) {
+        if (!/^(true|false)$/i.test(v) && !cpEdits.values.has(v)) { textsToTranslate.push(v); assignments.push({ type: 'value', key: v }); }
+      }
+    }
+  }
+  const unique = [...new Map(textsToTranslate.map((t, i) => [t + '||' + assignments[i].type, i])).values()];
+  const uTexts = unique.map(i => textsToTranslate[i]);
+  const uAssigns = unique.map(i => assignments[i]);
+
+  if (!uTexts.length) { toast('번역할 항목이 없습니다'); return; }
+  if (!confirm(`${uTexts.length}건을 번역하시겠습니까?`)) return;
+
+  translating = true;
+  const progress = document.getElementById('cp-progress');
+  const fill = document.getElementById('cp-progress-fill');
+  const pText = document.getElementById('cp-progress-text');
+  progress.style.display = 'block';
+  let done = 0, failed = 0;
+  const updateP = () => { fill.style.width = ((done + failed) / uTexts.length * 100) + '%'; pText.textContent = `${done + failed}/${uTexts.length}`; };
+
+  try {
+    const isGemini = document.getElementById('translate-engine').value === 'gemini';
+    let results;
+    if (isGemini) {
+      results = await geminiBatchTranslate(uTexts, sl, tl, (ok, fail) => { done += ok; failed += fail; updateP(); });
+    } else {
+      results = []; let delay = 300;
+      for (let i = 0; i < uTexts.length; i += 5) {
+        const batch = uTexts.slice(i, i + 5);
+        const res = await Promise.allSettled(batch.map(t => googleTranslateWithRetry(t, sl, tl)));
+        for (const r of res) { if (r.status === 'fulfilled') { results.push(r.value); done++; } else { results.push(''); failed++; } }
+        updateP(); if (i + 5 < uTexts.length) await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    for (let i = 0; i < uAssigns.length; i++) {
+      if (!results[i]) continue;
+      const a = uAssigns[i];
+      if (a.type === 'section') cpEdits.sections.set(a.key, results[i]);
+      else if (a.type === 'key') cpEdits.keys.set(a.key, results[i]);
+      else if (a.type === 'desc') cpEdits.descs.set(a.key, results[i]);
+      else if (a.type === 'value') cpEdits.values.set(a.key, results[i]);
+    }
+  } catch (err) { toast(`오류: ${err.message}`); }
+
+  translating = false; updateGlobalUI(); cpRenderAll();
+  setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0%'; pText.textContent = ''; }, 3000);
+  toast(`번역 완료: ${done}건 성공${failed ? `, ${failed}건 실패` : ''}`);
+}
+
+async function cpTranslateDescOnly() {
+  if (translating || !cpState.schema) return;
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  const items = []; const texts = [];
+  for (const sec of cpState.sections) {
+    for (const item of sec.items) {
+      if (item.description && !cpEdits.descs.has(item.key)) { items.push(item); texts.push(item.description); }
+    }
+  }
+  if (!texts.length) { toast('번역할 Description이 없습니다'); return; }
+  if (!confirm(`Description ${texts.length}건을 번역하시겠습니까?`)) return;
+
+  translating = true;
+  const progress = document.getElementById('cp-progress');
+  const fill = document.getElementById('cp-progress-fill');
+  const pText = document.getElementById('cp-progress-text');
+  progress.style.display = 'block';
+  let done = 0, failed = 0;
+  const updateP = () => { fill.style.width = ((done + failed) / texts.length * 100) + '%'; pText.textContent = `${done + failed}/${texts.length}`; };
+
+  try {
+    const isGemini = document.getElementById('translate-engine').value === 'gemini';
+    let results;
+    if (isGemini) {
+      results = await geminiBatchTranslate(texts, sl, tl, (ok, fail) => { done += ok; failed += fail; updateP(); });
+    } else {
+      results = []; let delay = 300;
+      for (let i = 0; i < texts.length; i += 5) {
+        const batch = texts.slice(i, i + 5);
+        const res = await Promise.allSettled(batch.map(t => googleTranslateWithRetry(t, sl, tl)));
+        for (const r of res) { if (r.status === 'fulfilled') { results.push(r.value); done++; } else { results.push(''); failed++; } }
+        updateP(); if (i + 5 < texts.length) await new Promise(r => setTimeout(r, delay));
+      }
+    }
+    for (let i = 0; i < items.length; i++) { if (results[i]) cpEdits.descs.set(items[i].key, results[i]); }
+  } catch (err) { toast(`오류: ${err.message}`); }
+
+  translating = false; updateGlobalUI(); cpRenderAll();
+  setTimeout(() => { progress.style.display = 'none'; fill.style.width = '0%'; pText.textContent = ''; }, 3000);
+  toast(`Description 번역 완료: ${done}건 성공${failed ? `, ${failed}건 실패` : ''}`);
+}
+
+async function cpTranslateSection(sectionName) {
+  if (translating || !cpState.schema) return;
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  const sec = cpState.sections.find(s => s.name === sectionName);
+  if (!sec) return;
+  const textsToTranslate = [];
+  const assignments = [];
+  if (!cpEdits.sections.has(sec.name)) { textsToTranslate.push(sec.name); assignments.push({ type: 'section', key: sec.name }); }
+  for (const item of sec.items) {
+    if (!cpEdits.keys.has(item.key)) { textsToTranslate.push(item.key); assignments.push({ type: 'key', key: item.key }); }
+    if (item.description && !cpEdits.descs.has(item.key)) { textsToTranslate.push(item.description); assignments.push({ type: 'desc', key: item.key }); }
+    for (const v of item.allowValues) {
+      if (!/^(true|false)$/i.test(v) && !cpEdits.values.has(v)) { textsToTranslate.push(v); assignments.push({ type: 'value', key: v }); }
+    }
+  }
+  if (!textsToTranslate.length) { toast('이 섹션은 이미 모두 번역되었습니다'); return; }
+  translating = true; toast(`"${sectionName}" 섹션 번역 중...`);
+  try {
+    const isGemini = document.getElementById('translate-engine').value === 'gemini';
+    let results;
+    if (isGemini) {
+      results = await geminiBatchTranslate(textsToTranslate, sl, tl, () => {});
+    } else {
+      results = [];
+      for (let i = 0; i < textsToTranslate.length; i += 5) {
+        const batch = textsToTranslate.slice(i, i + 5);
+        const res = await Promise.allSettled(batch.map(t => googleTranslateWithRetry(t, sl, tl)));
+        for (const r of res) results.push(r.status === 'fulfilled' ? r.value : '');
+        if (i + 5 < textsToTranslate.length) await new Promise(r => setTimeout(r, 300));
+      }
+    }
+    let ok = 0;
+    for (let i = 0; i < assignments.length; i++) {
+      if (!results[i]) continue; ok++;
+      const a = assignments[i];
+      if (a.type === 'section') cpEdits.sections.set(a.key, results[i]);
+      else if (a.type === 'key') cpEdits.keys.set(a.key, results[i]);
+      else if (a.type === 'desc') cpEdits.descs.set(a.key, results[i]);
+      else if (a.type === 'value') cpEdits.values.set(a.key, results[i]);
+    }
+    toast(`"${sectionName}" 번역 완료: ${ok}건`);
+  } catch (err) { toast(`오류: ${err.message}`); }
+  translating = false; updateGlobalUI(); cpRenderAll();
+}
+
+async function cpTranslateItem(itemKey) {
+  if (translating) return;
+  const sl = document.getElementById('lang-source').value;
+  const tl = document.getElementById('lang-target').value;
+  let item = null;
+  for (const sec of cpState.sections) { item = sec.items.find(i => i.key === itemKey); if (item) break; }
+  if (!item) return;
+  const texts = []; const assigns = [];
+  if (!cpEdits.keys.has(item.key)) { texts.push(item.key); assigns.push({ type: 'key', key: item.key }); }
+  if (item.description && !cpEdits.descs.has(item.key)) { texts.push(item.description); assigns.push({ type: 'desc', key: item.key }); }
+  for (const v of item.allowValues) {
+    if (!/^(true|false)$/i.test(v) && !cpEdits.values.has(v)) { texts.push(v); assigns.push({ type: 'value', key: v }); }
+  }
+  if (!texts.length) { toast('이미 번역됨'); return; }
+  translating = true;
+  try {
+    const results = await Promise.allSettled(texts.map(t => googleTranslateWithRetry(t, sl, tl)));
+    for (let i = 0; i < assigns.length; i++) {
+      if (results[i].status !== 'fulfilled') continue;
+      const a = assigns[i];
+      if (a.type === 'key') cpEdits.keys.set(a.key, results[i].value);
+      else if (a.type === 'desc') cpEdits.descs.set(a.key, results[i].value);
+      else if (a.type === 'value') cpEdits.values.set(a.key, results[i].value);
+    }
+    toast(`"${itemKey}" 번역 완료`);
+  } catch (err) { toast(`번역 실패: ${err.message}`); }
+  translating = false; updateGlobalUI(); cpRenderAll();
+}
+
+function cpReplaceWhenRecursive(obj, keyMap, valueMap) {
+  if (!obj || typeof obj !== 'object') return;
+  if (Array.isArray(obj)) { for (const item of obj) cpReplaceWhenRecursive(item, keyMap, valueMap); return; }
+  if (obj.When && typeof obj.When === 'object') {
+    const newWhen = {};
+    for (const [wKey, wVal] of Object.entries(obj.When)) {
+      const newK = keyMap.get(wKey) || wKey;
+      const vals = String(wVal).split(', ');
+      newWhen[newK] = vals.map(v => valueMap.get(v.trim()) || v.trim()).join(', ');
+    }
+    obj.When = newWhen;
+  }
+  for (const val of Object.values(obj)) {
+    if (typeof val === 'object' && val !== null) cpReplaceWhenRecursive(val, keyMap, valueMap);
+  }
+}
+
+async function cpSave() {
+  if (!cpState.raw) return;
+  const output = JSON.parse(JSON.stringify(cpState.raw));
+  const keyMap = new Map(cpEdits.keys);
+  const valueMap = new Map(cpEdits.values);
+
+  const oldSchema = output.ConfigSchema;
+  const newSchema = {};
+  for (const [origKey, entry] of Object.entries(oldSchema)) {
+    const newKey = keyMap.get(origKey) || origKey;
+    const newEntry = { ...entry };
+    if (cpEdits.descs.has(origKey)) newEntry.Description = cpEdits.descs.get(origKey);
+    if (cpEdits.sections.has(entry.Section)) newEntry.Section = cpEdits.sections.get(entry.Section);
+    if (entry.AllowValues) {
+      newEntry.AllowValues = entry.AllowValues.split(', ').map(v => valueMap.get(v.trim()) || v.trim()).join(', ');
+    }
+    if (entry.Default) {
+      const dVals = entry.Default.split(', ');
+      newEntry.Default = dVals.map(v => valueMap.get(v.trim()) || v.trim()).join(', ');
+    }
+    newSchema[newKey] = newEntry;
+  }
+  output.ConfigSchema = newSchema;
+  cpReplaceWhenRecursive(output, keyMap, valueMap);
+
+  const jsonStr = JSON.stringify(output, null, 2);
+  await _saveFile(jsonStr, cpState.contentFileName, cpState.contentHandle);
+
+  if (cpState.configRaw) {
+    const configOutput = {};
+    for (const [origKey, origVal] of Object.entries(cpState.configRaw)) {
+      const newKey = keyMap.get(origKey) || origKey;
+      const newVal = valueMap.get(origVal) || origVal;
+      configOutput[newKey] = newVal;
+    }
+    const configStr = JSON.stringify(configOutput, null, 2);
+    await _saveFile(configStr, cpState.configFileName, cpState.configHandle);
+  }
+
+  cpState.raw = output; cpState.schema = output.ConfigSchema;
+  cpEdits.keys.clear(); cpEdits.descs.clear(); cpEdits.sections.clear(); cpEdits.values.clear();
+  cpParseSchema(); cpRenderAll(); updateGlobalUI();
+  toast(cpState.configRaw ? 'content.json + config.json 저장 완료!' : 'content.json 저장 완료!');
+}
+
+/* ===== INIT ===== */
+(() => {
+  const savedEngine = localStorage.getItem('translate-engine');
+  if (savedEngine) {
+    document.getElementById('translate-engine').value = savedEngine;
+    onEngineChange();
+  }
+  const savedTier = localStorage.getItem('gemini-tier');
+  if (savedTier) document.getElementById('gemini-tier').value = savedTier;
+})();
+</script>
+</body>
+</html>
